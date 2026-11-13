@@ -155,13 +155,13 @@ function shuffle(values) {
 }
 
 function resolveRoleKey(roleKey) {
-  return ROLE_DEFINITIONS[roleKey]
+  return Object.hasOwn(ROLE_DEFINITIONS, roleKey)
     ? roleKey
     : randomOf(PROFILE_ROLE_KEYS);
 }
 
 function resolveTierKey(tierKey) {
-  if (TIER_DEFINITIONS[tierKey]) return tierKey;
+  if (Object.hasOwn(TIER_DEFINITIONS, tierKey)) return tierKey;
   return weightedChoice([
     { value: "ordinary", weight: 55 },
     { value: "capable", weight: 35 },
@@ -305,20 +305,23 @@ export function applyProfileToActorData(actorData, profile, options = {}) {
   actorData.system.bio ??= {};
 
   for (const [key, value] of Object.entries(profile.attributes || {})) {
+    if (!ATTRIBUTE_KEYS.includes(key)) continue;
     actorData.system.attribute[key] ??= {};
-    const current = Number(actorData.system.attribute[key].value);
-    if (overwrite || !Number.isFinite(current) || current <= 0) {
+    const stat = actorData.system.attribute[key];
+    const current = Number(stat.value);
+    const max = Number(stat.max);
+    if (overwrite || (!Number.isFinite(max) || max <= 0) && (!Number.isFinite(current) || current <= 0)) {
       actorData.system.attribute[key].value = value;
       actorData.system.attribute[key].max = value;
-    } else if (!Number.isFinite(Number(actorData.system.attribute[key].max)) || Number(actorData.system.attribute[key].max) <= 0) {
+    } else if (!Number.isFinite(max) || max <= 0) {
       actorData.system.attribute[key].max = current;
     }
   }
 
   for (const [key, value] of Object.entries(profile.skills || {})) {
+    if (!SKILL_KEYS.includes(key)) continue;
     actorData.system.skill[key] ??= {};
-    const current = Number(actorData.system.skill[key].value);
-    if (overwrite || !Number.isFinite(current) || current <= 0) actorData.system.skill[key].value = value;
+    if (overwrite || actorData.system.skill[key].value == null) actorData.system.skill[key].value = value;
   }
 
   actorData.system.bio.profession ??= {};

@@ -2,9 +2,9 @@
   <header class="fbl-cf-panel-header">
     <div><h2>{{localize titleKey}}</h2><p>{{localize hintKey}}</p></div>
     <div class="fbl-cf-toolbar">
-      <button type="button" data-action="add" data-tooltip="{{localize 'FBL_CF.Manager.Add'}}"><i class="fas fa-plus"></i></button>
-      <button type="button" data-action="import" data-tooltip="{{localize 'FBL_CF.Manager.Import'}}"><i class="fas fa-file-import"></i></button>
-      <button type="button" data-action="export" data-tooltip="{{localize 'FBL_CF.Manager.Export'}}"><i class="fas fa-file-export"></i></button>
+      <button type="button" data-action="add" data-tooltip="{{localize 'FBL_CF.Manager.Add'}}" aria-label="{{localize 'FBL_CF.Manager.Add'}}"><i class="fas fa-plus"></i></button>
+      <button type="button" data-action="import" data-tooltip="{{localize 'FBL_CF.Manager.Import'}}" aria-label="{{localize 'FBL_CF.Manager.Import'}}"><i class="fas fa-file-import"></i></button>
+      <button type="button" data-action="export" data-tooltip="{{localize 'FBL_CF.Manager.Export'}}" aria-label="{{localize 'FBL_CF.Manager.Export'}}"><i class="fas fa-file-export"></i></button>
       <input type="file" data-import-file accept="application/json,.json" hidden>
     </div>
   </header>
@@ -23,9 +23,9 @@
       {{#if selectedKey}}
       <div class="fbl-cf-manager__key fbl-cf-inline-actions">
         <input type="text" name="entryKey" value="{{selectedKey}}" aria-label="{{localize 'FBL_CF.Manager.Key'}}">
-        <button type="button" data-action="rename" data-tooltip="{{localize 'FBL_CF.Manager.Rename'}}"><i class="fas fa-pen"></i></button>
+        <button type="button" data-action="rename" data-tooltip="{{localize 'FBL_CF.Manager.Rename'}}" aria-label="{{localize 'FBL_CF.Manager.Rename'}}"><i class="fas fa-pen"></i></button>
       </div>
-      <textarea name="draft" spellcheck="false">{{draft}}</textarea>
+      <textarea name="draft" spellcheck="false" aria-label="{{localize 'FBL_CF.Manager.Definition'}}">{{draft}}</textarea>
       <div class="fbl-cf-validation {{#if validation.valid}}is-valid{{else}}is-invalid{{/if}}">
         {{#if validation.errors.length}}<p><strong>{{localize "FBL_CF.Manager.Errors"}}:</strong> {{#each validation.errors}}{{this}}{{#unless @last}}; {{/unless}}{{/each}}</p>{{/if}}
         {{#if validation.warnings.length}}<p><strong>{{localize "FBL_CF.Manager.Warnings"}}:</strong> {{#each validation.warnings}}{{this}}{{#unless @last}}; {{/unless}}{{/each}}</p>{{/if}}

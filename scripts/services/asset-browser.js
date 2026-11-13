@@ -2,6 +2,12 @@ import { IMAGE_EXTENSIONS, MODULE_ID } from "../constants.js";
 import { isImagePath, normalizeFoundryPath, unique } from "../utils.js";
 
 const browseCache = new Map();
+let cacheGeneration = 0;
+
+export function isMissingArtFolder(error) {
+  // The v13 FilePicker exposes local browse failures as error messages without an error code.
+  return /does not exist or is not accessible/.test(error?.cause?.message || "");
+}
 
 function getFilePickerClass() {
   return foundry.applications?.apps?.FilePicker?.implementation
@@ -19,7 +25,7 @@ function getCacheTtlMs() {
 }
 
 function makeCacheKey(kind, source, target, bucket, recursive) {
-  return `${kind}:${source}:${bucket || ""}:${normalizeFoundryPath(target)}:${recursive ? 1 : 0}`;
+  return JSON.stringify([kind, source, bucket, target, recursive]);
 }
 
 function readCache(key) {
@@ -33,8 +39,8 @@ function readCache(key) {
   return foundry.utils.deepClone(entry.value);
 }
 
-function writeCache(key, value) {
-  browseCache.set(key, { at: Date.now(), value: foundry.utils.deepClone(value) });
+function writeCache(key, value, generation) {
+  if (generation === cacheGeneration) browseCache.set(key, { at: Date.now(), value: foundry.utils.deepClone(value) });
   return value;
 }
 
@@ -46,82 +52,68 @@ async function browseDirect(source, target, bucket = null, { refresh = false } =
   if (!refresh) {
     const cached = readCache(key);
     if (cached) return cached;
-  }
+  } else browseCache.delete(key);
 
   const FilePickerClass = getFilePickerClass();
   if (!FilePickerClass?.browse) throw new Error("FilePicker.browse недоступен.");
 
+  const generation = cacheGeneration;
   try {
     const result = await FilePickerClass.browse(source, cleanTarget, {
       ...(bucket ? { bucket } : {}),
       extensions: IMAGE_EXTENSIONS
     });
+    if (result?.error || !Array.isArray(result?.files) || !Array.isArray(result?.dirs)) {
+      throw new Error(result?.error || "Invalid FilePicker response");
+    }
     return writeCache(key, {
-      files: Array.from(result?.files ?? []).filter(isImagePath),
-      dirs: Array.from(result?.dirs ?? []).map(normalizeFoundryPath).filter(Boolean)
-    });
+      files: result.files.filter(isImagePath).map(normalizeFoundryPath),
+      dirs: result.dirs.map(normalizeFoundryPath).filter(Boolean)
+    }, generation);
   } catch (err) {
-    console.warn(`${MODULE_ID} | Could not browse ${source}:${cleanTarget}`, err);
-    return { files: [], dirs: [], error: err?.message || String(err) };
+    throw new Error(game.i18n.format("FBL_CF.Status.BrowseFailed", {
+      path: cleanTarget, message: err?.message || String(err)
+    }), { cause: err });
   }
 }
 
-export async function browseImages(source, target, bucket = null, recursive = false, options = {}) {
-  const cleanTarget = normalizeFoundryPath(target);
-  if (!cleanTarget) return [];
-  const key = makeCacheKey("images", source, cleanTarget, bucket, recursive);
-  if (!options.refresh) {
-    const cached = readCache(key);
-    if (cached) return cached;
-  }
-
-  const seen = new Set();
-  const walk = async (path) => {
-    const cleanPath = normalizeFoundryPath(path);
-    const visitKey = `${source}:${bucket || ""}:${cleanPath}`;
-    if (!cleanPath || seen.has(visitKey)) return [];
-    seen.add(visitKey);
-
-    const result = await browseDirect(source, cleanPath, bucket, options);
-    const files = [...(result.files || [])];
-    if (recursive) {
-      for (const dir of result.dirs || []) files.push(...await walk(dir));
-    }
-    return files;
-  };
-
-  return writeCache(key, unique(await walk(cleanTarget)));
+export function browseImages(source, target, bucket = null, recursive = false, options = {}) {
+  return browseAssets("files", source, target, bucket, recursive, options);
 }
 
-export async function browseDirectories(source, target, bucket = null, recursive = false, options = {}) {
+export function browseDirectories(source, target, bucket = null, recursive = false, options = {}) {
+  return browseAssets("dirs", source, target, bucket, recursive, options);
+}
+
+async function browseAssets(kind, source, target, bucket, recursive, options) {
   const cleanTarget = normalizeFoundryPath(target);
   if (!cleanTarget) return [];
-  const key = makeCacheKey("dirs", source, cleanTarget, bucket, recursive);
+  const key = makeCacheKey(kind, source, cleanTarget, bucket, recursive);
   if (!options.refresh) {
     const cached = readCache(key);
     if (cached) return cached;
-  }
+  } else browseCache.delete(key);
 
+  const generation = cacheGeneration;
   const seen = new Set();
-  const walk = async (path) => {
-    const cleanPath = normalizeFoundryPath(path);
-    const visitKey = `${source}:${bucket || ""}:${cleanPath}`;
-    if (!cleanPath || seen.has(visitKey)) return [];
-    seen.add(visitKey);
-
-    const result = await browseDirect(source, cleanPath, bucket, options);
-    const dirs = [...(result.dirs || [])];
+  const pending = [cleanTarget];
+  const values = [];
+  while (pending.length) {
+    const path = pending.pop();
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const result = await browseDirect(source, path, bucket, options);
+    for (const value of result[kind]) values.push(value);
     if (recursive) {
-      for (const dir of result.dirs || []) dirs.push(...await walk(dir));
+      for (const dir of result.dirs) pending.push(dir);
     }
-    return dirs;
-  };
-
-  return writeCache(key, unique(await walk(cleanTarget)));
+  }
+  return writeCache(key, unique(values), generation);
 }
 
 export function clearAssetBrowseCache() {
   const count = browseCache.size;
+  cacheGeneration += 1;
   browseCache.clear();
   return count;
 }

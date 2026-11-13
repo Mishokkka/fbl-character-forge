@@ -1,9 +1,9 @@
 <div class="fbl-cf-forge {{#if busy}}is-busy{{/if}}" {{#if busy}}aria-busy="true"{{/if}}>
   {{#if status.text}}
-  <div class="fbl-cf-status fbl-cf-status--{{status.type}}">{{status.text}}</div>
+  <div class="fbl-cf-status fbl-cf-status--{{status.type}}" role="status">{{status.text}}</div>
   {{/if}}
 
-  <div class="fbl-cf-forge__main">
+  <div class="fbl-cf-forge__main" {{#if busy}}inert{{/if}}>
     <section class="fbl-cf-panel fbl-cf-panel--identity">
       <div class="fbl-cf-section-title">
         <h2><i class="fas fa-signature"></i> {{localize "FBL_CF.Forge.Identity"}}</h2>
@@ -13,9 +13,9 @@
       </div>
 
       <div class="form-group stacked fbl-cf-name-field">
-        <label>{{localize "FBL_CF.Forge.ActorName"}}</label>
+        <label for="{{controlId}}-name">{{localize "FBL_CF.Forge.ActorName"}}</label>
         <div class="form-fields fbl-cf-name-row">
-          <input type="text" name="name" value="{{state.name}}" autocomplete="off">
+          <input id="{{controlId}}-name" type="text" name="name" value="{{state.name}}" autocomplete="off">
           <button type="button" class="fbl-cf-icon-button" data-action="generate-name" data-tooltip="{{localize 'FBL_CF.Forge.GenerateName'}}" aria-label="{{localize 'FBL_CF.Forge.GenerateName'}}"><i class="fas fa-dice"></i></button>
           <button type="button" class="fbl-cf-icon-button" data-action="suggest-names" data-tooltip="{{localize 'FBL_CF.Forge.SuggestNames'}}" aria-label="{{localize 'FBL_CF.Forge.SuggestNames'}}"><i class="fas fa-list"></i></button>
         </div>
@@ -24,26 +24,26 @@
 
       <div class="fbl-cf-field-grid">
         <div class="form-group stacked">
-          <label>{{localize "FBL_CF.Forge.Culture"}}</label>
-          <select name="nameSetKey">
+          <label for="{{controlId}}-nameSetKey">{{localize "FBL_CF.Forge.Culture"}}</label>
+          <select id="{{controlId}}-nameSetKey" name="nameSetKey">
             {{#each nameSetOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
           </select>
         </div>
         <div class="form-group stacked">
-          <label>{{localize "FBL_CF.Forge.Gender"}}</label>
-          <select name="gender">
+          <label for="{{controlId}}-gender">{{localize "FBL_CF.Forge.Gender"}}</label>
+          <select id="{{controlId}}-gender" name="gender">
             {{#each genderOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
           </select>
         </div>
         <div class="form-group stacked">
-          <label>{{localize "FBL_CF.Forge.ActorType"}}</label>
-          <select name="type">
+          <label for="{{controlId}}-type">{{localize "FBL_CF.Forge.ActorType"}}</label>
+          <select id="{{controlId}}-type" name="type">
             {{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
           </select>
         </div>
         <div class="form-group stacked">
-          <label>{{localize "FBL_CF.Forge.Folder"}}</label>
-          <select name="folderId">
+          <label for="{{controlId}}-folderId">{{localize "FBL_CF.Forge.Folder"}}</label>
+          <select id="{{controlId}}-folderId" name="folderId">
             {{#each folderOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
           </select>
         </div>
@@ -56,14 +56,14 @@
           <span>{{localize "FBL_CF.Profile.Generate"}}</span>
         </label>
         <div class="form-group stacked">
-          <label>{{localize "FBL_CF.Profile.Role"}}</label>
-          <select name="profileRoleKey" {{#unless state.generateProfile}}disabled{{/unless}}>
+          <label for="{{controlId}}-profileRoleKey">{{localize "FBL_CF.Profile.Role"}}</label>
+          <select id="{{controlId}}-profileRoleKey" name="profileRoleKey" {{#unless state.generateProfile}}disabled{{/unless}}>
             {{#each profileRoleOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
           </select>
         </div>
         <div class="form-group stacked">
-          <label>{{localize "FBL_CF.Profile.Tier"}}</label>
-          <select name="profileTierKey" {{#unless state.generateProfile}}disabled{{/unless}}>
+          <label for="{{controlId}}-profileTierKey">{{localize "FBL_CF.Profile.Tier"}}</label>
+          <select id="{{controlId}}-profileTierKey" name="profileTierKey" {{#unless state.generateProfile}}disabled{{/unless}}>
             {{#each profileTierOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
           </select>
         </div>
@@ -91,16 +91,16 @@
       </div>
 
       {{#if isCharacter}}
-      <div class="fbl-cf-field-grid fbl-cf-field-grid--art">
+      <div class="fbl-cf-field-grid fbl-cf-field-grid--art" {{#unless state.assignArt}}inert{{/unless}}>
         <div class="form-group stacked">
-          <label>{{localize "FBL_CF.Forge.ArtSet"}}</label>
-          <select name="artSetKey">
+          <label for="{{controlId}}-artSetKey">{{localize "FBL_CF.Forge.ArtSet"}}</label>
+          <select id="{{controlId}}-artSetKey" name="artSetKey">
             {{#each artSetOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
           </select>
         </div>
         <div class="form-group stacked">
-          <label>{{localize "FBL_CF.Forge.Subset"}}</label>
-          <select name="artSubsetKey">
+          <label for="{{controlId}}-artSubsetKey">{{localize "FBL_CF.Forge.Subset"}}</label>
+          <select id="{{controlId}}-artSubsetKey" name="artSubsetKey">
             {{#each subsetOptions}}<option value="{{key}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
           </select>
         </div>
@@ -119,7 +119,7 @@
         </div>
 
         <div class="fbl-cf-art-actions">
-          <button type="button" class="fbl-cf-roll-art" data-action="roll-art"><i class="fas fa-dice"></i> {{localize "FBL_CF.Forge.RollArt"}}</button>
+          <button type="button" class="fbl-cf-roll-art" data-action="roll-art" {{#unless state.assignArt}}disabled{{/unless}}><i class="fas fa-dice"></i> {{localize "FBL_CF.Forge.RollArt"}}</button>
           <div class="fbl-cf-icon-strip">
             <button type="button" class="fbl-cf-icon-button" data-action="clear-art" data-tooltip="{{localize 'FBL_CF.Forge.ClearArt'}}" aria-label="{{localize 'FBL_CF.Forge.ClearArt'}}"><i class="fas fa-eraser"></i></button>
             <button type="button" class="fbl-cf-icon-button" data-action="inspect-art" data-tooltip="{{localize 'FBL_CF.Forge.InspectArt'}}" aria-label="{{localize 'FBL_CF.Forge.InspectArt'}}"><i class="fas fa-magnifying-glass"></i></button>
@@ -133,7 +133,7 @@
       <div class="fbl-cf-inspection">
         <dl class="fbl-cf-metrics">
           <div><dt>{{localize "FBL_CF.Diagnostics.Portraits"}}</dt><dd>{{inspection.portraitsAvailable}} / {{inspection.portraitsTotal}}</dd></div>
-          <div><dt>{{localize "FBL_CF.Diagnostics.Tokens"}}</dt><dd>{{inspection.tokensTotal}}</dd></div>
+          <div><dt>{{localize "FBL_CF.Diagnostics.Tokens"}}</dt><dd>{{inspection.tokensAvailable}} / {{inspection.tokensTotal}}</dd></div>
           <div><dt>{{localize "FBL_CF.Diagnostics.Used"}}</dt><dd>{{inspection.usedCount}}</dd></div>
         </dl>
         <p class="hint"><code>{{inspection.folder}}</code></p>
@@ -145,20 +145,20 @@
     </section>
   </div>
 
-  <div class="fbl-cf-forge__extras">
-    <details class="fbl-cf-disclosure">
+  <div class="fbl-cf-forge__extras" {{#if busy}}inert{{/if}}>
+    <details class="fbl-cf-disclosure" data-section="batch" {{#if expanded.batch}}open{{/if}}>
       <summary><span><i class="fas fa-layer-group"></i> {{localize "FBL_CF.Forge.Batch"}}</span><i class="fas fa-chevron-down fbl-cf-disclosure__chevron"></i></summary>
       <div class="fbl-cf-disclosure__body fbl-cf-batch-row">
         <div class="form-group stacked">
-          <label>{{localize "FBL_CF.Forge.BatchCount"}}</label>
-          <input type="number" name="batchCount" min="2" max="100" value="{{state.batchCount}}">
+          <label for="{{controlId}}-batchCount">{{localize "FBL_CF.Forge.BatchCount"}}</label>
+          <input id="{{controlId}}-batchCount" type="number" name="batchCount" min="2" max="100" value="{{state.batchCount}}">
         </div>
         <button type="button" data-action="create-batch"><i class="fas fa-users"></i> {{localize "FBL_CF.Forge.CreateBatch"}}</button>
         <p class="hint">{{localize "FBL_CF.Forge.BatchHint"}}</p>
       </div>
     </details>
 
-    <details class="fbl-cf-disclosure">
+    <details class="fbl-cf-disclosure" data-section="history" {{#if expanded.history}}open{{/if}}>
       <summary><span><i class="fas fa-clock-rotate-left"></i> {{localize "FBL_CF.Forge.History"}}</span><i class="fas fa-chevron-down fbl-cf-disclosure__chevron"></i></summary>
       <div class="fbl-cf-disclosure__body">
         {{#if historyAvailable}}
@@ -180,8 +180,8 @@
   </div>
 
   <footer class="fbl-cf-forge__footer">
-    <button type="button" class="fbl-cf-cancel" data-action="close"><i class="fas fa-xmark"></i> {{localize "FBL_CF.Common.Cancel"}}</button>
-    <div class="fbl-cf-footer-actions">
+    <button type="button" class="fbl-cf-cancel" data-action="close" {{#if busy}}disabled{{/if}}><i class="fas fa-xmark"></i> {{localize "FBL_CF.Common.Cancel"}}</button>
+    <div class="fbl-cf-footer-actions" {{#if busy}}inert{{/if}}>
       <button type="button" data-action="create-open"><i class="fas fa-up-right-from-square"></i> {{localize "FBL_CF.Forge.CreateOpen"}}</button>
       <button type="button" data-action="create-continue"><i class="fas fa-forward"></i> {{localize "FBL_CF.Forge.CreateContinue"}}</button>
       <button type="button" class="fbl-cf-primary" data-action="create"><i class="fas fa-user-plus"></i> {{localize "FBL_CF.Forge.Create"}}</button>

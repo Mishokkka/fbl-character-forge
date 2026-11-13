@@ -1,7 +1,7 @@
 import { MODULE_ID } from "../constants.js";
 import { getNameSets } from "./settings.js";
 import { generateName } from "./names.js";
-import { escapeHtml, getPropertyCompat, randomOf } from "../utils.js";
+import { escapeHtml, getPropertyCompat, randomOf, resolveSetKey } from "../utils.js";
 
 function localize(key, fallback) {
   const value = game.i18n?.localize?.(key);
@@ -10,17 +10,19 @@ function localize(key, fallback) {
 
 export function randomizeSceneTokenNamePre(tokenDocument, data = {}, options = {}, userId = null) {
   if (userId && userId !== game.user.id) return;
+  if (options.keepId || data.flags?.[MODULE_ID]?.randomTokenNameRolled) return;
   const payload = buildRandomSceneTokenNamePayload(tokenDocument, data, "preCreateToken");
-  if (!payload) return;
   try {
-    tokenDocument.updateSource(payload);
+    if (payload) tokenDocument.updateSource(payload);
+    // Foundry v13 drops randomImg from placed tokens. Persist an explicit opt-out for the post-create hook and HUD.
+    if (wildcardValue(data) === false) tokenDocument.updateSource({ ["flags." + MODULE_ID + ".wildcardToken"]: false });
   } catch (err) {
     console.warn(`${MODULE_ID} | Could not set random scene token name during preCreateToken`, err);
   }
 }
 
 export async function randomizeSceneTokenNamePost(tokenDocument, options = {}, userId = null) {
-  if (userId && userId !== game.user.id || !tokenDocument) return;
+  if ((userId && userId !== game.user.id) || !tokenDocument || options.keepId) return;
   const alreadyRolled = tokenDocument.getFlag?.(MODULE_ID, "randomTokenNameRolled")
     || getPropertyCompat(tokenDocument?._source, `flags.${MODULE_ID}.randomTokenNameRolled`);
   if (alreadyRolled) return;
@@ -44,8 +46,8 @@ export function buildRandomSceneTokenNamePayload(tokenDocument, data = {}, phase
   const mode = options.modeOverride || getTokenRandomNameMode(tokenDocument, data);
   if (!mode || mode === "none") return null;
   const nameSets = getNameSets();
-  const setKey = resolveRandomTokenNameSet(mode, nameSets);
-  if (!setKey || !nameSets[setKey]) return null;
+  const setKey = resolveRandomTokenNameSet(mode, nameSets, { useFallback: options.useFallback });
+  if (!setKey) return null;
 
   const name = generateName(setKey, options.gender || "random");
   if (!name) return null;
@@ -64,6 +66,7 @@ export function buildRandomSceneTokenNamePayload(tokenDocument, data = {}, phase
 
 export function buildRandomTokenNameOptions(current = "none") {
   const nameSets = getNameSets();
+  current = resolveSetKey(nameSets, current) || current;
   const options = [
     ["none", localize("FBL_CF.TokenNames.None", "Нет")],
     ["random", localize("FBL_CF.TokenNames.Random", "Случайная культура")]
@@ -76,12 +79,11 @@ export function buildRandomTokenNameOptions(current = "none") {
   }).join("");
 }
 
-export function resolveRandomTokenNameSet(mode, nameSets = getNameSets()) {
+export function resolveRandomTokenNameSet(mode, nameSets = getNameSets(), { useFallback = true } = {}) {
   if (!mode || mode === "none") return null;
-  if (mode !== "random") return nameSets[mode] ? mode : null;
-  const fallback = game.settings.get(MODULE_ID, "randomTokenNameFallback");
-  if (fallback && fallback !== "random" && nameSets[fallback]) return fallback;
-  return randomOf(Object.keys(nameSets));
+  if (mode !== "random") return resolveSetKey(nameSets, mode);
+  const fallback = useFallback ? game.settings.get(MODULE_ID, "randomTokenNameFallback") : null;
+  return resolveSetKey(nameSets, fallback) || randomOf(Object.keys(nameSets));
 }
 
 export function getTokenRandomNameMode(tokenDocument, sourceData = null) {
@@ -89,16 +91,10 @@ export function getTokenRandomNameMode(tokenDocument, sourceData = null) {
   const actor = getActorFromTokenData(tokenDocument, sourceData);
   const candidates = [
     sourceData,
-    tokenDocument?._source,
-    tokenDocument?.toObject?.(true),
     tokenDocument,
-    tokenDocument?.baseActor,
-    tokenDocument?.actor,
-    tokenDocument?.actor?.prototypeToken,
-    tokenDocument?.actor?._source?.prototypeToken,
-    actor,
+    tokenDocument?._source,
     actor?.prototypeToken,
-    actor?._source?.prototypeToken
+    actor
   ].filter(Boolean);
 
   for (const candidate of candidates) {
@@ -106,25 +102,22 @@ export function getTokenRandomNameMode(tokenDocument, sourceData = null) {
     if (direct) return direct;
     const viaGetFlag = candidate?.getFlag?.(MODULE_ID, "randomTokenName");
     if (viaGetFlag) return viaGetFlag;
-    const rolledDirect = getPropertyCompat(candidate, `flags.${MODULE_ID}.randomTokenNameRolled.mode`);
-    if (rolledDirect) return rolledDirect;
-    const rolledViaFlag = candidate?.getFlag?.(MODULE_ID, "randomTokenNameRolled");
-    if (rolledViaFlag?.mode) return rolledViaFlag.mode;
   }
-  return null;
+  return tokenDocument?.getFlag?.(MODULE_ID, "randomTokenNameRolled")?.mode
+    || getPropertyCompat(sourceData, "flags." + MODULE_ID + ".randomTokenNameRolled.mode") || null;
 }
 
 export function getFormRandomNameMode(form) {
   return form?.querySelector?.(`[name="flags.${MODULE_ID}.randomTokenName"]`)?.value || null;
 }
 
-export async function rerollPlacedTokenName(tokenDocument, { modeOverride = null } = {}) {
+export async function rerollPlacedTokenName(tokenDocument, { modeOverride = null, useFallback = true } = {}) {
   if (!tokenDocument) return null;
   const payload = buildRandomSceneTokenNamePayload(
     tokenDocument,
     tokenDocument.toObject?.(true) ?? {},
     "manualReroll",
-    { modeOverride, ignoreLock: true }
+    { modeOverride, useFallback, ignoreLock: true }
   );
   if (!payload) return null;
   await tokenDocument.update(payload);
@@ -166,32 +159,22 @@ export async function rerollControlledTokenNames({ modeOverride = null } = {}) {
 
 export function isWildcardToken(tokenDocument, sourceData = null) {
   const actor = getActorFromTokenData(tokenDocument, sourceData);
-  const candidates = [
-    sourceData,
-    tokenDocument?._source,
-    tokenDocument?.toObject?.(true),
-    tokenDocument,
-    tokenDocument?.baseActor,
-    tokenDocument?.actor,
-    tokenDocument?.actor?.prototypeToken,
-    tokenDocument?.actor?._source?.prototypeToken,
-    actor,
-    actor?.prototypeToken,
-    actor?._source?.prototypeToken
-  ].filter(Boolean);
+  const tokenOverride = [sourceData, tokenDocument, tokenDocument?._source].map(wildcardValue).find(value => value !== undefined);
+  if (tokenOverride !== undefined) return tokenOverride;
+  if (sourceData?.flags?.[MODULE_ID]?.wildcardToken === false || tokenDocument?.flags?.[MODULE_ID]?.wildcardToken === false) return false;
+  return wildcardValue(actor?.prototypeToken) ?? false;
+}
 
-  return candidates.some(data => {
-    return data?.randomImg === true
-      || data?.randomImg === "true"
-      || getPropertyCompat(data, "randomImg") === true
-      || getPropertyCompat(data, "randomImg") === "true"
-      || getPropertyCompat(data, "texture.randomImg") === true
-      || getPropertyCompat(data, "texture.randomImg") === "true";
-  });
+function wildcardValue(data) {
+  for (const value of [data?.randomImg, data?.texture?.randomImg]) {
+    if (value === true || value === "true") return true;
+    if (value === false || value === "false") return false;
+  }
+  return undefined;
 }
 
 export function getActorFromTokenData(tokenDocument, sourceData = null) {
-  const actor = tokenDocument?.actor || tokenDocument?.baseActor;
+  const actor = tokenDocument?.baseActor || tokenDocument?.actor;
   if (actor) return actor;
   const actorId = sourceData?.actorId
     || getPropertyCompat(sourceData, "actorId")
@@ -214,7 +197,7 @@ export function getWildcardFormGroup(input) {
 }
 
 export function isInputChecked(input) {
-  return !!(input?.checked || input?.value === "true");
+  return input?.type === "checkbox" ? input.checked : input?.value === "true";
 }
 
 export function getTokenConfigDocument(app) {

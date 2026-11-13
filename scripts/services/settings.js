@@ -2,6 +2,10 @@ import { MODULE_ID, SETTINGS_SCHEMA_VERSION } from "../constants.js";
 import { DEFAULT_NAME_SETS, applyNameSetAdditions } from "../data/name-sets.js";
 import { DEFAULT_ART_SETS } from "../data/art-sets.js";
 import { buildDefaultGenderCultureFolders } from "../data/cultures.js";
+import { BASE_NAME_SETS } from "../data/name-sets.base.js";
+import { resolveSetKey } from "../utils.js";
+import { clearAssetBrowseCache } from "./asset-browser.js";
+import { requireActiveGM } from "./world-operations.js";
 
 export const DEFAULT_TOKEN_NAME_PATTERNS = [
   "{id}T", "{id}t", "T{id}", "t{id}", "T {id}", "t {id}", "T-{id}", "t-{id}",
@@ -10,12 +14,21 @@ export const DEFAULT_TOKEN_NAME_PATTERNS = [
   "{id}_Token", "{id} Token", "processed- {id}", "processed-{id}"
 ];
 
-export function splitTokenNamePatterns(value) {
+export function parseTokenNamePatternEntries(value) {
   const source = Array.isArray(value) ? value.join("\n") : String(value ?? "");
   return source
-    .split(/[\n,;]+/g)
+    .split(/[\r\n,;]+/g)
     .map(pattern => pattern.trim())
-    .filter(pattern => pattern && pattern.includes("{id}"));
+    .filter(Boolean);
+}
+
+export function isTokenNamePattern(pattern) {
+  const parts = pattern.split("{id}");
+  return parts.length === 2;
+}
+
+export function splitTokenNamePatterns(value) {
+  return parseTokenNamePatternEntries(value).filter(isTokenNamePattern);
 }
 
 export function uniquePreserveOrder(values) {
@@ -36,7 +49,7 @@ export function normalizeTokenNamePatternsForStorage(value) {
 }
 
 export function ensureTokenNamePatternDefaults(value) {
-  const current = uniquePreserveOrder(splitTokenNamePatterns(value));
+  const current = uniquePreserveOrder(parseTokenNamePatternEntries(value));
   let changed = false;
   for (const pattern of DEFAULT_TOKEN_NAME_PATTERNS) {
     if (current.some(existing => existing.toLowerCase() === pattern.toLowerCase())) continue;
@@ -71,7 +84,8 @@ export function registerSettings(menuTypes = {}) {
     scope: "world",
     config: false,
     type: String,
-    default: JSON.stringify(DEFAULT_ART_SETS, null, 2)
+    default: JSON.stringify(DEFAULT_ART_SETS, null, 2),
+    onChange: clearAssetBrowseCache
   });
 
   game.settings.register(MODULE_ID, "tokenNamePatterns", {
@@ -80,7 +94,7 @@ export function registerSettings(menuTypes = {}) {
     scope: "world",
     config: false,
     type: String,
-    default: DEFAULT_TOKEN_NAME_PATTERNS.join("\n")
+    default: normalizeTokenNamePatternsForStorage(DEFAULT_TOKEN_NAME_PATTERNS)
   });
 
   registerMenu("nameSetManager", {
@@ -316,69 +330,57 @@ export function registerSettings(menuTypes = {}) {
   });
 }
 
-export async function migrateSettings() {
+export async function migrateSettings({ migrateRegistry }) {
   try {
-    const nameSets = getNameSets();
-    let nameSetsChanged = false;
-    for (const [key, value] of Object.entries(DEFAULT_NAME_SETS)) {
-      if (nameSets[key]) continue;
-      nameSets[key] = foundry.utils.deepClone(value);
-      nameSetsChanged = true;
-    }
-    if (applyNameSetAdditions(nameSets)) nameSetsChanged = true;
-    if (nameSetsChanged) await setNameSets(nameSets);
-
-    const artSets = getArtSets();
-    let artSetsChanged = false;
-    for (const [key, value] of Object.entries(DEFAULT_ART_SETS)) {
-      if (artSets[key]) continue;
-      artSets[key] = foundry.utils.deepClone(value);
-      artSetsChanged = true;
-    }
-
-    const humanByCultureGender = artSets.humanByCultureGender;
-    if (humanByCultureGender?.folders) {
-      const defaults = buildDefaultGenderCultureFolders("3_F00L/Art/NPC/Human/Named/Random");
-      for (const gender of ["male", "female"]) {
-        humanByCultureGender.folders[gender] ??= {};
-        for (const [key, folder] of Object.entries(defaults[gender])) {
-          if (humanByCultureGender.folders[gender][key]) continue;
-          humanByCultureGender.folders[gender][key] = folder;
-          artSetsChanged = true;
-        }
-      }
-    }
-    if (artSetsChanged) await setArtSets(artSets);
-
-    const tokenMigration = ensureTokenNamePatternDefaults(game.settings.get(MODULE_ID, "tokenNamePatterns"));
-    if (tokenMigration.changed) await game.settings.set(MODULE_ID, "tokenNamePatterns", tokenMigration.value);
-
     const schema = Number(game.settings.get(MODULE_ID, "settingsSchemaVersion")) || 0;
-    if (schema < 2) {
-      const registry = getUsedAssets();
-      let changed = false;
-      for (const setData of Object.values(registry)) {
-        for (const [path, entry] of Object.entries(setData?.assets || {})) {
-          if (entry?.kinds && entry?.state) continue;
-          setData.assets[path] = {
-            kinds: entry?.kinds || (entry?.kind ? [entry.kind] : []),
-            actorId: entry?.actorId || null,
-            actorName: entry?.actorName || null,
-            usedAt: entry?.usedAt || null,
-            state: entry?.state || "active"
-          };
-          changed = true;
-        }
-      }
-      if (changed) await setUsedAssets(registry);
+    if (schema >= SETTINGS_SCHEMA_VERSION) return;
+    if (schema < 2) await migrateLegacyConfig();
+    if (schema < 3) {
+      await migrateDefaultSurnames();
+      await migrateRegistry();
     }
-
-    if (schema !== SETTINGS_SCHEMA_VERSION) {
-      await game.settings.set(MODULE_ID, "settingsSchemaVersion", SETTINGS_SCHEMA_VERSION);
-    }
+    requireActiveGM();
+    await game.settings.set(MODULE_ID, "settingsSchemaVersion", SETTINGS_SCHEMA_VERSION);
   } catch (err) {
     console.warn(`${MODULE_ID} | Settings migration failed`, err);
   }
+}
+
+async function migrateDefaultSurnames() {
+  const nameSets = getNameSets();
+  let changed = false;
+  for (const key of ["lezhnizem", "dikhtbeyr"]) {
+    const setKey = resolveSetKey(nameSets, key);
+    if (!setKey) continue;
+    for (const field of ["familyMale", "familyFemale"]) {
+      const pool = nameSets[setKey]?.[field];
+      const base = BASE_NAME_SETS[key][field];
+      if (!Array.isArray(pool) || pool.length !== base.length || !pool.every((value, i) => value === base[i])) continue;
+      nameSets[setKey][field] = DEFAULT_NAME_SETS[key][field];
+      changed = true;
+    }
+  }
+  if (changed) await setNameSets(nameSets);
+}
+
+async function migrateLegacyConfig() {
+  const nameSets = getNameSets();
+  const mergedNames = { ...DEFAULT_NAME_SETS, ...nameSets };
+  const addedNames = Object.keys(mergedNames).length !== Object.keys(nameSets).length;
+  if (applyNameSetAdditions(mergedNames) || addedNames) await setNameSets(mergedNames);
+
+  const artSets = getArtSets();
+  const mergedArt = { ...DEFAULT_ART_SETS, ...artSets };
+  const branches = artSets.humanByCultureGender?.folders;
+  if (branches && typeof branches === "object" && !Array.isArray(branches)) {
+    const defaults = buildDefaultGenderCultureFolders();
+    mergedArt.humanByCultureGender = { ...artSets.humanByCultureGender, folders: {
+      ...branches,
+      male: { ...defaults.male, ...branches.male },
+      female: { ...defaults.female, ...branches.female }
+    } };
+  }
+  if (JSON.stringify(mergedArt) !== JSON.stringify(artSets)) await setArtSets(mergedArt);
 }
 
 export function parseJsonSetting(key, fallback) {
@@ -402,6 +404,7 @@ export function getNameSets() {
 }
 
 export async function setNameSets(data) {
+  requireActiveGM();
   await game.settings.set(MODULE_ID, "nameSets", JSON.stringify(data || {}, null, 2));
 }
 
@@ -411,11 +414,24 @@ export function getArtSets() {
 }
 
 export async function setArtSets(data) {
+  requireActiveGM();
   await game.settings.set(MODULE_ID, "artSets", JSON.stringify(data || {}, null, 2));
 }
 
 export function getGlobalTokenNamePatterns() {
   return splitTokenNamePatterns(game.settings.get(MODULE_ID, "tokenNamePatterns"));
+}
+
+export async function saveTokenNamePatterns({ value, expected }) {
+  if (game.settings.get(MODULE_ID, "tokenNamePatterns") !== expected) {
+    throw new Error(game.i18n.localize("FBL_CF.Manager.ConcurrentEdit"));
+  }
+  const invalid = parseTokenNamePatternEntries(value).filter(pattern => !isTokenNamePattern(pattern)).length;
+  if (invalid) throw new Error(game.i18n.format("FBL_CF.TokenPatterns.InvalidSave", { count: invalid }));
+  const normalized = normalizeTokenNamePatternsForStorage(value);
+  requireActiveGM();
+  await game.settings.set(MODULE_ID, "tokenNamePatterns", normalized);
+  return normalized;
 }
 
 export function getUsedAssets() {
@@ -424,6 +440,7 @@ export function getUsedAssets() {
 }
 
 export async function setUsedAssets(data) {
+  requireActiveGM();
   await game.settings.set(MODULE_ID, "usedAssets", JSON.stringify(data || {}, null, 2));
 }
 

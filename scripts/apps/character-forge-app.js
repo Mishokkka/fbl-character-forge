@@ -7,7 +7,7 @@ import {
   getGenerationHistory,
   getNameSets
 } from "../services/settings.js";
-import { generateNameDetailed, previewNames } from "../services/names.js";
+import { generateNameDetailed, previewNames, resolveGender } from "../services/names.js";
 import {
   getArtSubsetOptions,
   inspectArtSet,
@@ -17,7 +17,7 @@ import {
 import { clearAssetBrowseCache } from "../services/asset-browser.js";
 import { resetUsedAssetsForSet } from "../services/asset-registry.js";
 import { PROFILE_ROLE_KEYS, PROFILE_TIER_KEYS } from "../services/profiles.js";
-import { safeDefaultKey } from "../utils.js";
+import { randomOf, safeDefaultKey } from "../utils.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -30,7 +30,13 @@ function optionList(entries, selected) {
   return entries.map(([value, label]) => ({ value, label, selected: value === selected }));
 }
 
-function actorFolderOptions(selectedId = "") {
+function actorFolderOptions(selectedId = "", allowed = null) {
+  if (Array.isArray(allowed)) {
+    return [
+      { value: "", label: localize("FBL_CF.Common.RootFolder", "Без папки"), selected: !selectedId },
+      ...allowed.map(folder => ({ value: folder.id, label: folder.name, selected: folder.id === selectedId }))
+    ];
+  }
   const folders = Array.from(game.folders || [])
     .filter(folder => folder.type === "Actor")
     .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || a.name.localeCompare(b.name));
@@ -59,7 +65,7 @@ function actorFolderOptions(selectedId = "") {
 
 export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
-    id: "fbl-character-forge-app",
+    id: "fbl-character-forge-app-{id}",
     classes: ["fbl-cf-app", "fbl-cf-forge-app"],
     tag: "form",
     window: {
@@ -90,6 +96,7 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
     this.status = { type: "", text: "" };
     this.inspection = null;
     this.forgeState = {};
+    this.expanded = {};
   }
 
   static open(options = {}) {
@@ -113,9 +120,9 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
   }
 
   #getActorTypes() {
-    const configured = game.system?.documentTypes?.Actor || [];
+    const configured = this.documentClass?.TYPES || game.system?.documentTypes?.Actor || [];
     const types = Array.isArray(configured) ? configured : Object.keys(configured || {});
-    return types.length ? types : [ACTOR_TYPE];
+    return types.length ? types.filter(type => type !== "base") : [ACTOR_TYPE];
   }
 
   async #ensureInitialized() {
@@ -141,21 +148,22 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       nameSuggestions: [],
       artSetKey,
       artSubsetKey: "general",
-      subsetOptions: [{ key: "general", label: localize("FBL_CF.Forge.GeneralSubset", "Общие"), folder: "" }],
-      assignArt: type === ACTOR_TYPE && game.settings.get(MODULE_ID, "assignArt"),
-      generateProfile: type === ACTOR_TYPE && game.settings.get(MODULE_ID, "generateProfile"),
+      subsetOptions: this.#generalSubset(),
+      assignArt: game.settings.get(MODULE_ID, "assignArt"),
+      generateProfile: game.settings.get(MODULE_ID, "generateProfile"),
       profileRoleKey: game.settings.get(MODULE_ID, "lastProfileRole") || "random",
       profileTierKey: game.settings.get(MODULE_ID, "lastProfileTier") || "random",
       portrait: "",
       token: "",
+      previewArt: null,
       batchCount: Number(game.settings.get(MODULE_ID, "batchDefaultCount")) || 5
     };
 
     if (!this.forgeState.name && game.settings.get(MODULE_ID, "autoGenerateName") && type === ACTOR_TYPE) {
       this.#generateName();
-    }
+    } else this.#resolveIdentity();
 
-    await this.#refreshSubsets();
+    if (type === ACTOR_TYPE && this.forgeState.assignArt) await this.#refreshSubsets();
     if (game.settings.get(MODULE_ID, "autoRollArt") && this.forgeState.assignArt && type === ACTOR_TYPE) {
       try {
         await this.#rollArt({ silent: true });
@@ -182,13 +190,15 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       ...baseContext,
       isGM: !!game.user?.isGM,
       busy: this.busy,
+      controlId: this.id,
+      expanded: this.expanded,
       status: this.status,
       state: this.forgeState,
       isCharacter,
       portraitPreview: this.forgeState.portrait || FALLBACK_IMAGE,
       tokenPreview: this.forgeState.token || this.forgeState.portrait || FALLBACK_IMAGE,
       typeOptions: optionList(this.allowedTypes.map(type => [type, CONFIG.Actor?.typeLabels?.[type] ? game.i18n.localize(CONFIG.Actor.typeLabels[type]) : type]), this.forgeState.type),
-      folderOptions: actorFolderOptions(this.forgeState.folderId),
+      folderOptions: actorFolderOptions(this.forgeState.folderId, this.dialogOptions.folders),
       nameSetOptions: optionList([
         ["random", localize("FBL_CF.Forge.RandomCulture", "Случайная культура")],
         ...Object.entries(nameSets).map(([key, set]) => [key, set?.label || key])
@@ -230,43 +240,50 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
     const root = this.element;
     if (!root) return;
 
-    root.addEventListener("submit", event => event.preventDefault());
+    root.onsubmit = event => event.preventDefault();
+    for (const section of root.querySelectorAll("details[data-section]")) {
+      section.addEventListener("toggle", () => { this.expanded[section.dataset.section] = section.open; });
+    }
 
     const bind = (name, eventName, handler) => {
-      root.querySelector(`[name="${CSS.escape(name)}"]`)?.addEventListener(eventName, handler);
+      root.querySelector(`${`[name="${CSS.escape(name)}"]`}`)?.addEventListener(eventName, async event => {
+        if (this.busy) return;
+        try {
+          await handler(event);
+        } catch (err) {
+          await this.#showError(err);
+        }
+      });
     };
 
     bind("name", "input", event => {
       this.forgeState.name = event.currentTarget.value;
       this.forgeState.generatedName = false;
-      this.forgeState.resolvedGender = null;
-      this.forgeState.resolvedNameSetKey = null;
-      root.querySelector(".fbl-cf-context")?.remove();
     });
     bind("type", "change", async event => {
       this.forgeState.type = event.currentTarget.value;
-      await this.render({ force: true });
+      this.inspection = null;
+      await this.#runBusy(async () => {
+        if (this.forgeState.type === ACTOR_TYPE) await this.#refreshSubsets();
+      });
     });
     bind("folderId", "change", event => { this.forgeState.folderId = event.currentTarget.value; });
     bind("nameSetKey", "change", async event => {
       this.forgeState.nameSetKey = event.currentTarget.value;
-      await game.settings.set(MODULE_ID, "lastNameSet", this.forgeState.nameSetKey);
-      this.#resetResolvedContext();
-      await this.#refreshSubsets();
-      await this.render({ force: true });
+      await this.#runBusy(async () => {
+        await this.#changeIdentity();
+        await game.settings.set(MODULE_ID, "lastNameSet", this.forgeState.nameSetKey);
+      });
     });
     bind("gender", "change", async event => {
       this.forgeState.gender = event.currentTarget.value;
-      this.#resetResolvedContext();
-      await this.#refreshSubsets();
-      await this.render({ force: true });
+      await this.#runBusy(() => this.#changeIdentity());
     });
     bind("artSetKey", "change", async event => {
       this.forgeState.artSetKey = event.currentTarget.value;
       this.#clearArt();
       this.inspection = null;
-      await this.#refreshSubsets();
-      await this.render({ force: true });
+      await this.#runBusy(() => this.#refreshSubsets());
     });
     bind("artSubsetKey", "change", async event => {
       this.forgeState.artSubsetKey = normalizeArtSubsetKey(event.currentTarget.value);
@@ -274,7 +291,11 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       this.inspection = null;
       await this.render({ force: true });
     });
-    bind("assignArt", "change", event => { this.forgeState.assignArt = !!event.currentTarget.checked; });
+    bind("assignArt", "change", async event => {
+      this.forgeState.assignArt = event.currentTarget.checked;
+      if (this.forgeState.assignArt) await this.#runBusy(() => this.#refreshSubsets());
+      else await this.render({ force: true });
+    });
     bind("generateProfile", "change", async event => {
       this.forgeState.generateProfile = !!event.currentTarget.checked;
       await this.render({ force: true });
@@ -288,7 +309,7 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       await game.settings.set(MODULE_ID, "lastProfileTier", this.forgeState.profileTierKey);
     });
     bind("batchCount", "change", event => {
-      this.forgeState.batchCount = Math.max(2, Math.min(100, Number(event.currentTarget.value) || 2));
+      this.forgeState.batchCount = Math.max(2, Math.min(100, Math.trunc(Number(event.currentTarget.value)) || 2));
     });
   }
 
@@ -298,25 +319,20 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   async #handleAction(event, action, target = null) {
     event.preventDefault();
-    if (this.busy && !["close"].includes(action)) return;
+    if (this.busy) return;
 
     target ||= event.currentTarget;
     try {
       switch (action) {
         case "generate-name":
-          this.#generateName();
-          await this.render({ force: true });
+          await this.#runBusy(() => this.#applyGeneratedName(generateNameDetailed(this.forgeState.nameSetKey, this.forgeState.gender)));
           break;
         case "suggest-names":
           this.forgeState.nameSuggestions = previewNames(this.forgeState.nameSetKey, this.forgeState.gender, 8);
           await this.render({ force: true });
           break;
         case "choose-name":
-          this.forgeState.name = target.dataset.name || "";
-          this.forgeState.generatedName = true;
-          this.forgeState.resolvedGender = target.dataset.gender || null;
-          this.forgeState.resolvedNameSetKey = target.dataset.setKey || (this.forgeState.nameSetKey !== "random" ? this.forgeState.nameSetKey : null);
-          await this.render({ force: true });
+          await this.#runBusy(() => this.#applyGeneratedName(target.dataset));
           break;
         case "roll-art":
           await this.#runBusy(() => this.#rollArt());
@@ -333,19 +349,22 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
           clearAssetBrowseCache();
           await this.#runBusy(async () => {
             await this.#refreshSubsets({ refresh: true });
-            await this.#inspectArt({ refresh: true });
+            await this.#inspectArt();
           });
           break;
         case "reset-used": {
+          const key = this.forgeState.artSetKey;
           const confirmed = await foundry.applications.api.DialogV2.confirm({
             window: { title: localize("FBL_CF.Forge.ResetUsed", "Сбросить занятость") },
             content: `<p>${localize("FBL_CF.Forge.ResetUsedConfirm", "Освободить все изображения выбранного набора?")}</p>`,
             rejectClose: false
           });
           if (!confirmed) break;
-          await resetUsedAssetsForSet(this.forgeState.artSetKey);
-          this.#setStatus("success", localize("FBL_CF.Status.RegistryReset", "Занятость выбранного набора сброшена."));
-          await this.render({ force: true });
+          await this.#runBusy(async () => {
+            await resetUsedAssetsForSet(key);
+            this.inspection = null;
+            this.#setStatus("success", localize("FBL_CF.Status.RegistryReset", "Занятость выбранного набора сброшена."));
+          });
           break;
         }
         case "create":
@@ -372,27 +391,24 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
           break;
       }
     } catch (err) {
-      console.error(`${MODULE_ID} | Forge action ${action} failed`, err);
-      this.#setStatus("error", err?.message || String(err));
-      ui.notifications?.error?.(err?.message || String(err));
-      await this.render({ force: true });
+      await this.#showError(err);
     }
   }
 
   async #runBusy(operation) {
     this.busy = true;
     this.#setStatus("busy", localize("FBL_CF.Status.Working", "Выполняется…"));
-    await this.render({ force: true });
     try {
+      await this.render({ force: true });
       return await operation();
     } finally {
       this.busy = false;
+      if (this.status.type === "busy") this.#setStatus("", "");
       if (this.element) await this.render({ force: true });
     }
   }
 
-  #generateName() {
-    const details = generateNameDetailed(this.forgeState.nameSetKey, this.forgeState.gender);
+  #generateName(details = generateNameDetailed(this.forgeState.nameSetKey, this.forgeState.gender)) {
     this.forgeState.name = details.name || "";
     this.forgeState.resolvedGender = details.gender || null;
     this.forgeState.resolvedNameSetKey = details.setKey || this.forgeState.nameSetKey;
@@ -401,18 +417,35 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
     this.#setStatus("", "");
   }
 
-  #resetResolvedContext() {
-    this.forgeState.resolvedGender = null;
-    this.forgeState.resolvedNameSetKey = null;
-    this.forgeState.generatedName = false;
+  #resolveIdentity() {
+    const nameSets = getNameSets();
+    const key = this.forgeState.nameSetKey === "random" ? randomOf(Object.keys(nameSets)) : this.forgeState.nameSetKey;
+    this.forgeState.resolvedNameSetKey = key;
+    this.forgeState.resolvedGender = resolveGender(nameSets[key], this.forgeState.gender);
+  }
+
+  async #changeIdentity() {
+    if (this.forgeState.generatedName) this.#generateName();
+    else this.#resolveIdentity();
     this.forgeState.nameSuggestions = [];
     this.#clearArt();
     this.inspection = null;
+    if (this.forgeState.type === ACTOR_TYPE) await this.#refreshSubsets();
+  }
+
+  async #applyGeneratedName(details) {
+    const { resolvedNameSetKey, resolvedGender } = this.forgeState;
+    this.#generateName(details);
+    if (resolvedNameSetKey === this.forgeState.resolvedNameSetKey && resolvedGender === this.forgeState.resolvedGender) return;
+    this.#clearArt();
+    this.inspection = null;
+    if (this.forgeState.type === ACTOR_TYPE && this.forgeState.assignArt) await this.#refreshSubsets();
   }
 
   #clearArt() {
     this.forgeState.portrait = "";
     this.forgeState.token = "";
+    this.forgeState.previewArt = null;
   }
 
   #artContext() {
@@ -429,16 +462,24 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
     };
   }
 
+  #generalSubset() {
+    return [{ key: "general", label: localize("FBL_CF.Forge.GeneralSubset", "Общие"), folder: "" }];
+  }
+
   async #refreshSubsets(options = {}) {
     if (!this.forgeState.artSetKey) return;
     try {
       const subsets = await getArtSubsetOptions(this.forgeState.artSetKey, this.#artContext(), options);
       this.forgeState.subsetOptions = subsets;
-      if (!subsets.some(option => option.key === this.forgeState.artSubsetKey)) this.forgeState.artSubsetKey = "general";
+      if (!subsets.some(option => option.key === this.forgeState.artSubsetKey)) {
+        this.forgeState.artSubsetKey = "general";
+        this.#clearArt();
+      }
     } catch (err) {
       console.warn(`${MODULE_ID} | Could not read art subsets`, err);
-      this.forgeState.subsetOptions = [{ key: "general", label: localize("FBL_CF.Forge.GeneralSubset", "Общие"), folder: "" }];
+      this.forgeState.subsetOptions = this.#generalSubset();
       this.forgeState.artSubsetKey = "general";
+      this.#setStatus("warning", err?.message || String(err));
     }
   }
 
@@ -447,6 +488,8 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
     const art = await rollArt(this.forgeState.artSetKey, this.#artContext());
     this.forgeState.portrait = art.portrait || "";
     this.forgeState.token = art.token || art.portrait || "";
+    this.forgeState.previewArt = { artSubsetKey: art.artSubsetKey };
+    if (art.artSubsetKey !== this.forgeState.artSubsetKey) this.forgeState.artSubsetKey = art.artSubsetKey;
     this.inspection = null;
     if (!silent) this.#setStatus("success", localize("FBL_CF.Status.ArtRolled", "Арт выбран."));
   }
@@ -463,7 +506,7 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       actorData: foundry.utils.deepClone(this.baseData),
       name: name ?? this.forgeState.name,
       type: this.forgeState.type,
-      folderId: this.forgeState.folderId || null,
+      folder: this.forgeState.folderId || "",
       nameSetKey: this.forgeState.nameSetKey,
       cultureKey: this.forgeState.nameSetKey,
       gender: this.forgeState.gender,
@@ -473,6 +516,7 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       artSubsetKey: this.forgeState.artSubsetKey,
       assignArt: this.forgeState.assignArt,
       art: { portrait: this.forgeState.portrait, token: this.forgeState.token },
+      previewArt: this.forgeState.previewArt,
       generateProfile: this.forgeState.generateProfile,
       profileRoleKey: this.forgeState.profileRoleKey,
       profileTierKey: this.forgeState.profileTierKey,
@@ -482,22 +526,27 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
   }
 
   async #createOne({ openSheet = false, continueAfter = false } = {}) {
-    if (!String(this.forgeState.name || "").trim()) this.#generateName();
+    if (!String(this.forgeState.name || "").trim()) await this.#applyGeneratedName(generateNameDetailed(this.forgeState.nameSetKey, this.forgeState.gender));
     const result = await createActorFromApi(this.#buildCreateOptions({ openSheet }));
     await this.#recordHistory(result);
 
     this.#resolveDialog(result.actor);
     ui.notifications?.info?.(localize("FBL_CF.Status.ActorCreated", "Актёр создан: ") + result.actor.name);
+    for (const warning of result.warnings) ui.notifications?.warn?.(warning);
 
     if (!continueAfter) {
-      await this.close();
+      await super.close();
       return result;
     }
 
-    this.#generateName();
-    if (this.forgeState.assignArt) {
+    await this.#applyGeneratedName(generateNameDetailed(this.forgeState.nameSetKey, this.forgeState.gender));
+    if (this.forgeState.type === ACTOR_TYPE && this.forgeState.assignArt) {
       try { await this.#rollArt({ silent: true }); }
-      catch (_err) { this.#clearArt(); }
+      catch (err) {
+        this.#clearArt();
+        this.#setStatus("warning", err?.message || String(err));
+        return result;
+      }
     }
     this.#setStatus("success", localize("FBL_CF.Status.ReadyNext", "Актёр создан. Подготовлен следующий вариант."));
     return result;
@@ -517,11 +566,16 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       }
     });
 
+    if (result.results[0]) this.#resolveDialog(result.results[0].actor);
     for (const item of result.results) await this.#recordHistory(item);
 
-    const message = `${localize("FBL_CF.Status.BatchDone", "Создано актёров")}: ${result.results.length}`
-      + (result.errors.length ? `; ${localize("FBL_CF.Status.Errors", "ошибок")}: ${result.errors.length}` : "");
-    this.#setStatus(result.errors.length ? "warning" : "success", message);
+    const warnings = new Set(result.results.flatMap(item => item.warnings));
+    const message = game.i18n.format("FBL_CF.Status.BatchSummary", {
+      created: result.results.length, errors: result.errors.length, warnings: warnings.size
+    });
+    for (const warning of warnings) ui.notifications?.warn?.(warning);
+    if (result.errors.length) ui.notifications?.error?.(result.errors[0].message);
+    this.#setStatus(result.errors.length || warnings.size ? "warning" : "success", message);
     ui.notifications?.info?.(message);
   }
 
@@ -545,6 +599,18 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   #setStatus(type, text) {
     this.status = { type, text };
+  }
+
+  async #showError(err) {
+    console.error(MODULE_ID + " | Forge action failed", err);
+    this.#setStatus("error", err?.message || String(err));
+    ui.notifications?.error?.(this.status.text);
+    if (this.element) await this.render({ force: true });
+  }
+
+  async close(options = {}) {
+    if (this.busy) return this;
+    return super.close(options);
   }
 
   #resolveDialog(actor) {

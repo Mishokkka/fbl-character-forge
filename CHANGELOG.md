@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Serialized shared art selection and registry writes through the active GM. Track each actor using a shared image and migrate existing reservations.
+- Corrected portrait and token pairing across recursive folders, token-only exhaustion, stale previews and folder-cache retries.
+- Preserved existing culture and art references on rename. Validate imported sets and token filename patterns before saving.
+- Fixed Actor creation and template cloning, including cancelled creation, prototype token names and preservation of damaged attributes and zero-ranked skills.
+- Fixed wildcard configuration rerenders and token-level overrides. Added keyboard access to Forge controls and the Token HUD.
+
 ## 2.1.1
 
 - All generated NPC profiles now receive exactly 14 total attribute points, regardless of competence tier.

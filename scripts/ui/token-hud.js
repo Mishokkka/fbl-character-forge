@@ -2,6 +2,7 @@ import { MODULE_ID } from "../constants.js";
 import { normalizeElement } from "../utils.js";
 import {
   getTokenRandomNameMode,
+  isWildcardToken,
   rerollPlacedTokenName,
   restorePlacedTokenName
 } from "../services/token-names.js";
@@ -19,14 +20,15 @@ export function enhanceTokenHud(app, element, data = null) {
   const mode = getTokenRandomNameMode(tokenDocument, tokenDocument.toObject?.(true) ?? null);
 
   root.querySelectorAll?.(".fbl-cf-reroll-token-name")?.forEach(node => node.remove());
-  if (!mode || mode === "none") return;
+  if (!mode || mode === "none" || !isWildcardToken(tokenDocument)) return;
   const target = getHudButtonTarget(root);
   if (!target) return;
 
-  const button = document.createElement("div");
+  const button = document.createElement("button");
+  button.type = "button";
   button.className = "control-icon fbl-cf-reroll-token-name";
-  button.dataset.action = "fbl-cf-reroll-token-name";
   button.title = game.i18n.localize("FBL_CF.TokenNames.HudHint");
+  button.setAttribute("aria-label", game.i18n.localize("FBL_CF.TokenNames.HudReroll"));
   button.innerHTML = '<i class="fas fa-dice-d20"></i>';
   button.addEventListener("click", async event => {
     event.preventDefault();
@@ -38,7 +40,7 @@ export function enhanceTokenHud(app, element, data = null) {
         if (restored) ui.notifications?.info?.(`${game.i18n.localize("FBL_CF.TokenNames.Restored")}: ${restored}`);
         return;
       }
-      const name = await rerollPlacedTokenName(liveToken, { modeOverride: event.altKey ? "random" : null });
+      const name = await rerollPlacedTokenName(liveToken, { modeOverride: event.altKey ? "random" : null, useFallback: !event.altKey });
       if (name) ui.notifications?.info?.(`${game.i18n.localize("FBL_CF.TokenNames.Rerolled")}: ${name}`);
     } catch (err) {
       console.warn(`${MODULE_ID} | Could not reroll token name`, err);

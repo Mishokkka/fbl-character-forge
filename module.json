@@ -3,6 +3,7 @@
   "title": "Forbidden Lands Character Forge",
   "description": "Heavy-luxury NPC forge for Forbidden Lands: culture-based names, paired portrait/token assignment, automatic Forbidden Lands stats, skills and BIO, batch generation, asset registry, diagnostics and random scene token names.",
   "version": "2.1.1",
+  "socket": true,
   "authors": [
     {
       "name": "Хозяин"

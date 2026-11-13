@@ -1,199 +1,244 @@
-import { MODULE_ID } from "../constants.js";
-import { getUsedAssets, setUsedAssets } from "./settings.js";
+import { FALLBACK_IMAGE, MODULE_ID } from "../constants.js";
+import { isImagePath, normalizeFoundryPath, resolveSetKey } from "../utils.js";
+import { getArtSets, getUsedAssets, setUsedAssets } from "./settings.js";
+import { runWorldOperation } from "./world-operations.js";
 
-let assetQueue = Promise.resolve();
-
-function normalizeEntry(entry = {}) {
-  const kinds = Array.isArray(entry.kinds)
-    ? entry.kinds.filter(Boolean)
-    : entry.kind ? [entry.kind] : [];
-  return {
-    kinds: [...new Set(kinds)],
-    actorId: entry.actorId || null,
-    actorName: entry.actorName || null,
-    usedAt: entry.usedAt || null,
-    state: entry.state || "active"
-  };
+function normalizeEntry(entry) {
+  if (Array.isArray(entry?.owners)) return entry;
+  if (!entry) return { owners: [] };
+  const { actorId = null, actorName = null, usedAt = null, state = "active" } = entry;
+  const kinds = Array.isArray(entry.kinds) ? entry.kinds : entry.kind ? [entry.kind] : [];
+  return { owners: [{ actorId, actorName, kinds, usedAt, state }] };
 }
 
-export function withAssetRegistryLock(fn) {
-  const run = assetQueue.then(fn, fn);
-  assetQueue = run.catch(() => undefined);
-  return run;
+function mergeOwners(left, right) {
+  const owners = new Map(left.map(owner => [owner.actorId, owner]));
+  for (const owner of right) {
+    const prior = owners.get(owner.actorId);
+    owners.set(owner.actorId, prior ? {
+      ...prior,
+      kinds: [...new Set([...prior.kinds, ...owner.kinds])],
+      state: prior.state === "active" || owner.state === "active" ? "active" : "orphaned"
+    } : owner);
+  }
+  return [...owners.values()];
+}
+
+// Legacy buckets can still be referenced through an art-set alias after a rename.
+function combineBuckets(registry, artSetKey, artSets = getArtSets()) {
+  const key = resolveSetKey(artSets, artSetKey) || artSetKey;
+  const matching = Object.keys(registry).filter(candidate => candidate === key || resolveSetKey(artSets, candidate) === key);
+  const assets = Object.create(null);
+  for (const candidate of matching) {
+    for (const [path, entry] of Object.entries(registry[candidate]?.assets || {})) {
+      const normalizedPath = normalizeFoundryPath(path);
+      assets[normalizedPath] = { owners: mergeOwners(assets[normalizedPath]?.owners || [], normalizeEntry(entry).owners) };
+    }
+  }
+  return { key, matching, assets };
+}
+
+function updateBucket(registry, key, matching, assets) {
+  for (const candidate of matching) delete registry[candidate];
+  if (Object.keys(assets).length) registry[key] = { assets };
 }
 
 export function shouldUseAssetRegistry(set) {
-  try {
-    return game.settings.get(MODULE_ID, "markUsedAssets") && set?.markUsed !== false;
-  } catch (_err) {
-    return set?.markUsed !== false;
-  }
+  return Boolean(set && set.markUsed !== false && game.settings.get(MODULE_ID, "markUsedAssets"));
 }
 
 export function getUsedPathSet(artSetKey, { includeOrphaned = false } = {}) {
-  const registry = getUsedAssets();
-  const assets = registry?.[artSetKey]?.assets || {};
+  const { assets } = combineBuckets(getUsedAssets(), artSetKey);
   return new Set(Object.entries(assets)
-    .filter(([, value]) => includeOrphaned || normalizeEntry(value).state !== "orphaned")
+    .filter(([, entry]) => entry.owners.some(owner => includeOrphaned || owner.state !== "orphaned"))
     .map(([path]) => path));
 }
 
 export function isAssetUsed(artSetKey, path) {
-  if (!path) return false;
-  return getUsedPathSet(artSetKey).has(path);
+  return Boolean(path && getUsedPathSet(artSetKey).has(normalizeFoundryPath(path)));
 }
 
-export async function markAssetsUsed(artSetKey, art, actor, { state = "active" } = {}) {
-  if (!artSetKey) return;
-  const registry = getUsedAssets();
-  registry[artSetKey] ??= { assets: {} };
-  registry[artSetKey].assets ??= {};
+export function isWorldActor(actor) {
+  return Boolean(actor?.id && !actor.pack && !actor.parent && !actor.isToken);
+}
 
-  const stamp = new Date().toISOString();
-  const actorId = actor?.id || null;
-  const actorName = actor?.name || null;
+function actorArt(actor) {
+  return {
+    portrait: assetPath(actor.img),
+    token: actor.prototypeToken?.randomImg ? "" : assetPath(actor.prototypeToken?.texture?.src)
+  };
+}
 
-  for (const [kind, path] of Object.entries({ portrait: art?.portrait, token: art?.token })) {
+function assetPath(path) {
+  const clean = normalizeFoundryPath(path);
+  return isImagePath(clean) && clean !== FALLBACK_IMAGE ? clean : "";
+}
+
+function addActorAssets(assets, art, actor) {
+  const paths = new Map();
+  for (const [kind, path] of Object.entries(art)) {
     if (!path) continue;
-    const prior = normalizeEntry(registry[artSetKey].assets[path]);
-    registry[artSetKey].assets[path] = {
-      ...prior,
-      kinds: [...new Set([...prior.kinds, kind])],
-      actorId,
-      actorName,
-      usedAt: stamp,
-      state
-    };
+    paths.set(path, [...(paths.get(path) || []), kind]);
   }
+  let changed = 0;
+  for (const [path, kinds] of paths) {
+    const { owners } = normalizeEntry(assets[path]);
+    const prior = owners.find(owner => owner.actorId === actor.id);
+    if (prior?.state === "active" && prior.kinds.join() === kinds.join() && prior.actorName === actor.name) continue;
+    assets[path] = { owners: [
+      ...owners.filter(owner => owner.actorId !== actor.id),
+      { actorId: actor.id, actorName: actor.name, kinds, usedAt: new Date().toISOString(), state: "active" }
+    ] };
+    changed += 1;
+  }
+  return changed;
+}
 
+export async function markAssetsUsed(artSetKey, actor) {
+  if (!artSetKey || !isWorldActor(actor) || game.actors.get(actor.id) !== actor) return;
+  const registry = getUsedAssets();
+  const { key, matching, assets } = combineBuckets(registry, artSetKey);
+  if (!addActorAssets(assets, actorArt(actor), actor)) return;
+  updateBucket(registry, key, matching, assets);
   await setUsedAssets(registry);
 }
 
-export async function releaseAssetsForActor(actorOrId, { markOrphaned = false } = {}) {
-  const actorId = typeof actorOrId === "string" ? actorOrId : actorOrId?.id;
-  if (!actorId) return 0;
-
-  const registry = getUsedAssets();
+function removeActorAssets(registry, actorId, update = () => null) {
   let changed = 0;
-  for (const setData of Object.values(registry)) {
+  for (const [key, setData] of Object.entries(registry)) {
     const assets = setData?.assets || {};
     for (const [path, rawEntry] of Object.entries(assets)) {
-      const entry = normalizeEntry(rawEntry);
-      if (entry.actorId !== actorId) continue;
-      changed += 1;
-      if (markOrphaned) assets[path] = { ...entry, state: "orphaned" };
+      const { owners } = normalizeEntry(rawEntry);
+      const owner = owners.find(candidate => candidate.actorId === actorId);
+      if (!owner) continue;
+      const next = update(owner, key, path);
+      if (next === owner) continue;
+      const remaining = owners.filter(candidate => candidate !== owner);
+      if (next) remaining.push(next);
+      if (remaining.length) assets[path] = { owners: remaining };
       else delete assets[path];
+      changed += 1;
     }
   }
+  return changed;
+}
 
+export async function releaseAssetsForActor(actor) {
+  if (!isWorldActor(actor)) return 0;
+  const registry = getUsedAssets();
+  const changed = removeActorAssets(registry, actor.id);
   if (changed) await setUsedAssets(registry);
   return changed;
 }
 
 export async function syncActorAssetUsage(actor) {
-  if (!actor?.id) return 0;
+  if (!isWorldActor(actor) || game.actors.get(actor.id) !== actor) return 0;
   const registry = getUsedAssets();
-  const portrait = actor.img || null;
-  const token = actor.prototypeToken?.texture?.src || null;
-  const artSetKey = actor.getFlag?.(MODULE_ID, "artSet")
-    || actor.flags?.[MODULE_ID]?.artSet
-    || null;
-
-  let changed = 0;
-  for (const setData of Object.values(registry)) {
-    const assets = setData?.assets || {};
-    for (const [path, rawEntry] of Object.entries(assets)) {
-      const entry = normalizeEntry(rawEntry);
-      if (entry.actorId !== actor.id) continue;
-      const kinds = [];
-      if (path === portrait) kinds.push("portrait");
-      if (path === token) kinds.push("token");
-      if (!kinds.length) {
-        delete assets[path];
-        changed += 1;
-        continue;
-      }
-      if (kinds.join("|") !== entry.kinds.join("|")) {
-        assets[path] = { ...entry, kinds };
-        changed += 1;
-      }
-    }
+  const artSets = getArtSets();
+  const flags = actor.flags?.[MODULE_ID];
+  const key = resolveSetKey(artSets, flags?.artSet);
+  const art = actorArt(actor);
+  let hasReservation = false;
+  let changed = removeActorAssets(registry, actor.id, (owner, bucket, path) => {
+    if (flags?.markUsed === false || !key || resolveSetKey(artSets, bucket) !== key) return null;
+    hasReservation = true;
+    const kinds = Object.keys(art).filter(kind => art[kind] === normalizeFoundryPath(path));
+    if (!kinds.length) return null;
+    return kinds.join() === owner.kinds.join() ? owner : { ...owner, kinds };
+  });
+  const track = flags?.markUsed !== false && flags?.trackAssetBranch !== false
+    && (flags?.assetUsage === "active" || hasReservation) && shouldUseAssetRegistry(artSets[key]);
+  if (track) {
+    const { matching, assets } = combineBuckets(registry, key, artSets);
+    const added = addActorAssets(assets, art, actor);
+    if (added) updateBucket(registry, key, matching, assets);
+    changed += added;
   }
-
-  if (artSetKey && (portrait || token)) {
-    registry[artSetKey] ??= { assets: {} };
-    registry[artSetKey].assets ??= {};
-    const stamp = new Date().toISOString();
-    for (const [kind, path] of Object.entries({ portrait, token })) {
-      if (!path) continue;
-      const prior = normalizeEntry(registry[artSetKey].assets[path]);
-      const next = {
-        ...prior,
-        kinds: [...new Set([...prior.kinds, kind])],
-        actorId: actor.id,
-        actorName: actor.name || null,
-        usedAt: stamp,
-        state: "active"
-      };
-      if (JSON.stringify(prior) !== JSON.stringify(next)) {
-        registry[artSetKey].assets[path] = next;
-        changed += 1;
-      }
-    }
-  }
-
   if (changed) await setUsedAssets(registry);
   return changed;
 }
 
-export async function cleanupOrphanedAssets({ remove = true } = {}) {
+function isOrphaned(owner) {
+  return owner.state === "orphaned" || Boolean(owner.actorId && !game.actors.get(owner.actorId));
+}
+
+export async function cleanAssetRegistry({ remove = true } = {}) {
   const registry = getUsedAssets();
   let orphaned = 0;
   let removed = 0;
-
+  let changed = false;
   for (const setData of Object.values(registry)) {
     const assets = setData?.assets || {};
     for (const [path, rawEntry] of Object.entries(assets)) {
-      const entry = normalizeEntry(rawEntry);
-      const missing = entry.actorId && !game.actors?.get?.(entry.actorId);
-      if (!missing && entry.state !== "orphaned") continue;
-      orphaned += 1;
-      if (remove) {
+      const { owners } = normalizeEntry(rawEntry);
+      const stale = owners.filter(isOrphaned);
+      if (!stale.length && owners.length) continue;
+      changed ||= remove || stale.some(owner => owner.state !== "orphaned");
+      const active = owners.filter(owner => !isOrphaned(owner));
+      if (!active.length) orphaned += 1;
+      if (remove && !active.length) {
         delete assets[path];
         removed += 1;
-      } else {
-        assets[path] = { ...entry, state: "orphaned" };
-      }
+      } else assets[path] = { owners: remove ? active : [...active, ...stale.map(owner => ({ ...owner, state: "orphaned" }))] };
     }
   }
-
-  if (orphaned) await setUsedAssets(registry);
+  if (changed) await setUsedAssets(registry);
   return { orphaned, removed };
 }
 
-export async function resetUsedAssetsForSet(artSetKey) {
+export function cleanupOrphanedAssets(options = {}) {
+  return runWorldOperation("cleanRegistry", options);
+}
+
+export async function resetAssetRegistry({ artSetKey }) {
   const registry = getUsedAssets();
-  const count = Object.keys(registry?.[artSetKey]?.assets || {}).length;
-  delete registry[artSetKey];
-  await setUsedAssets(registry);
-  return count;
+  const { assets, matching } = combineBuckets(registry, artSetKey);
+  for (const key of matching) delete registry[key];
+  if (matching.length) await setUsedAssets(registry);
+  return Object.keys(assets).length;
+}
+
+export function resetUsedAssetsForSet(artSetKey) {
+  return runWorldOperation("resetRegistry", { artSetKey });
 }
 
 export function getAssetRegistryStats() {
   const registry = getUsedAssets();
-  const sets = [];
-  let total = 0;
-  let orphaned = 0;
-  for (const [key, setData] of Object.entries(registry)) {
-    const entries = Object.values(setData?.assets || {}).map(normalizeEntry);
-    const setOrphaned = entries.filter(entry => entry.state === "orphaned" || (entry.actorId && !game.actors?.get?.(entry.actorId))).length;
-    total += entries.length;
-    orphaned += setOrphaned;
-    sets.push({ key, total: entries.length, orphaned: setOrphaned });
-  }
-  return { total, orphaned, sets };
+  const artSets = getArtSets();
+  const keys = new Set(Object.keys(registry).map(key => resolveSetKey(artSets, key) || key));
+  const sets = [...keys].map(key => {
+    const entries = Object.values(combineBuckets(registry, key, artSets).assets);
+    return { key, total: entries.length, orphaned: entries.filter(entry => entry.owners.every(isOrphaned)).length };
+  });
+  return {
+    total: sets.reduce((sum, set) => sum + set.total, 0),
+    orphaned: sets.reduce((sum, set) => sum + set.orphaned, 0),
+    sets
+  };
 }
 
 export function exportAssetRegistry() {
-  return foundry.utils.deepClone(getUsedAssets());
+  return getUsedAssets();
+}
+
+export async function migrateAssetRegistry() {
+  const source = getUsedAssets();
+  if (!Object.keys(source).length) return;
+  const artSets = getArtSets();
+  const keys = new Set(Object.keys(source).map(key => resolveSetKey(artSets, key) || key));
+  const registry = Object.fromEntries([...keys].map(key => [key, { assets: combineBuckets(source, key, artSets).assets }]));
+
+  // Older versions stored only the most recent owner of a reused path.
+  for (const actor of game.actors) {
+    const flags = actor.flags?.[MODULE_ID];
+    if (!isWorldActor(actor) || !flags?.artSet || flags.assetUsage !== "active"
+      || flags.markUsed === false || flags.trackAssetBranch === false) continue;
+    const key = resolveSetKey(artSets, flags.artSet) || flags.artSet;
+    const assets = registry[key]?.assets;
+    if (!assets) continue;
+    const flagPaths = [flags.portrait, flags.token].map(normalizeFoundryPath);
+    const art = Object.fromEntries(Object.entries(actorArt(actor)).filter(([, path]) => path && Object.hasOwn(assets, path) && flagPaths.includes(path)));
+    addActorAssets(assets, art, actor);
+  }
+  await setUsedAssets(registry);
 }

@@ -2,9 +2,11 @@ import { MODULE_ID } from "../constants.js";
 import {
   DEFAULT_TOKEN_NAME_PATTERNS,
   ensureTokenNamePatternDefaults,
-  normalizeTokenNamePatternsForStorage,
+  isTokenNamePattern,
+  parseTokenNamePatternEntries,
   splitTokenNamePatterns
 } from "../services/settings.js";
+import { runWorldOperation } from "../services/world-operations.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -23,7 +25,8 @@ export class TokenNamePatternSettingsApp extends HandlebarsApplicationMixin(Appl
 
   constructor(options = {}) {
     super(options);
-    this.value = game.settings.get(MODULE_ID, "tokenNamePatterns") || DEFAULT_TOKEN_NAME_PATTERNS.join("\n");
+    this.value = game.settings.get(MODULE_ID, "tokenNamePatterns");
+    this.savedValue = this.value;
     this.status = "";
   }
 
@@ -40,7 +43,7 @@ export class TokenNamePatternSettingsApp extends HandlebarsApplicationMixin(Appl
       ...baseContext,
       value: this.value,
       count: patterns.length,
-      invalidCount: String(this.value || "").split(/\r?\n/).map(value => value.trim()).filter(value => value && !value.includes("{id}")).length,
+      invalidCount: parseTokenNamePatternEntries(this.value).filter(pattern => !isTokenNamePattern(pattern)).length,
       status: this.status,
       examples: patterns.slice(0, 12).map(pattern => pattern.replaceAll("{id}", "17"))
     };
@@ -50,7 +53,7 @@ export class TokenNamePatternSettingsApp extends HandlebarsApplicationMixin(Appl
     await super._onRender(context, options);
     const root = this.element;
     root?.querySelector?.("textarea[name='patterns']")?.addEventListener("input", event => { this.value = event.currentTarget.value; });
-    root?.addEventListener?.("submit", event => event.preventDefault());
+    if (root) root.onsubmit = event => event.preventDefault();
   }
 
   async _onClickAction(event, target) {
@@ -67,16 +70,8 @@ export class TokenNamePatternSettingsApp extends HandlebarsApplicationMixin(Appl
     event.preventDefault();
     switch (action) {
       case "save": {
-        const rawLines = String(this.value || "").split(/\r?\n/).map(value => value.trim()).filter(Boolean);
-        const invalidLines = rawLines.filter(value => !value.includes("{id}"));
-        if (invalidLines.length) {
-          throw new Error(game.i18n.format("FBL_CF.TokenPatterns.InvalidSave", { count: invalidLines.length }));
-        }
-
-        const normalized = normalizeTokenNamePatternsForStorage(this.value);
-        if (!normalized) throw new Error(game.i18n.localize("FBL_CF.TokenPatterns.Empty"));
-        this.value = normalized;
-        await game.settings.set(MODULE_ID, "tokenNamePatterns", normalized);
+        const normalized = await runWorldOperation("savePatterns", { value: this.value, expected: this.savedValue });
+        this.value = this.savedValue = normalized;
         this.status = game.i18n.localize("FBL_CF.Manager.Saved");
         await this.render({ force: true });
         break;

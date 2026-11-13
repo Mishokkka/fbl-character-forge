@@ -1,35 +1,35 @@
 import { BASE_NAME_SETS } from "../data/name-sets.base.js";
 import { CULTURE_ALIASES } from "../data/cultures.js";
 import { getNameSets } from "./settings.js";
-import { capitalize, randomOf, safeDefaultKey } from "../utils.js";
+import { capitalize, randomOf, resolveSetKey, safeDefaultKey } from "../utils.js";
 
 const recentNames = new Map();
 const RECENT_PER_SET = 20;
+const GENDERS = ["male", "female", "neutral"];
+const GIVEN_POOLS = ["given", "names"];
+const NAME_POOLS = [
+  ...GENDERS, ...GIVEN_POOLS, "entries", "familyMale", "familyFemale", "familyNeutral",
+  "family", "surnames", "clan", "patronymMale", "patronymFemale", "patronymNeutral",
+  "patronym", "prefix", "suffix", "title", "particle", "byname", "origin", "occupation", "patterns"
+];
 
 export function normalizeNameSetKey(key, nameSets = null) {
   const raw = String(key || "").trim();
   if (!raw) return raw;
   if (raw === "random") return raw;
   const directSets = nameSets || BASE_NAME_SETS;
-  if (directSets?.[raw]) return raw;
+  const direct = resolveSetKey(directSets, raw);
+  if (direct) return direct;
   const compact = raw.replace(/[\s-]+/g, "_");
-  if (CULTURE_ALIASES[raw]) return CULTURE_ALIASES[raw];
-  if (CULTURE_ALIASES[compact]) return CULTURE_ALIASES[compact];
   const lower = compact.toLowerCase();
-  for (const [alias, target] of Object.entries(CULTURE_ALIASES)) {
-    if (String(alias).toLowerCase() === lower) return target;
-  }
-  return raw;
+  const target = Object.hasOwn(CULTURE_ALIASES, raw) ? CULTURE_ALIASES[raw]
+    : Object.entries(CULTURE_ALIASES).find(([alias]) => alias.toLowerCase() === lower)?.[1];
+  return resolveSetKey(directSets, target) || target || raw;
 }
 
 export function weightedRandom(entries) {
   if (!Array.isArray(entries) || !entries.length) return null;
-  const normalized = entries.map(entry => {
-    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-      return { value: entry.value ?? entry.pattern ?? entry.name ?? "", weight: Math.max(0, Number(entry.weight) || 0) };
-    }
-    return { value: entry, weight: 1 };
-  }).filter(entry => entry.value !== "" && entry.value != null);
+  const normalized = entries.map(normalizeWeightedEntry).filter(Boolean);
   if (!normalized.length) return null;
 
   const total = normalized.reduce((sum, entry) => sum + entry.weight, 0);
@@ -37,9 +37,17 @@ export function weightedRandom(entries) {
   let roll = Math.random() * total;
   for (const entry of normalized) {
     roll -= entry.weight;
-    if (roll <= 0) return entry.value;
+    if (roll < 0) return entry.value;
   }
   return normalized.at(-1)?.value ?? null;
+}
+
+function normalizeWeightedEntry(entry) {
+  const weighted = entry && typeof entry === "object" && !Array.isArray(entry);
+  const value = weighted ? entry.value ?? entry.pattern ?? entry.name : entry;
+  const weight = weighted ? Number(entry.weight ?? 1) : 1;
+  if (typeof value !== "string" || !value.trim() || !Number.isFinite(weight) || weight < 0) return null;
+  return { value, weight };
 }
 
 export function chooseNamePattern(set, hasFamily = false) {
@@ -51,7 +59,8 @@ export function chooseNamePattern(set, hasFamily = false) {
 function choosePoolValue(set, fields) {
   for (const field of fields) {
     const pool = set?.[field];
-    if (Array.isArray(pool) && pool.length) return weightedRandom(pool) || "";
+    const value = weightedRandom(pool);
+    if (value) return value;
   }
   return "";
 }
@@ -65,7 +74,7 @@ export function generateNameDetailed(setKey, gender = "random") {
   const normalizedSetKey = normalizeNameSetKey(setKey, nameSets);
   const resolvedSetKey = normalizedSetKey === "random"
     ? randomOf(Object.keys(nameSets))
-    : nameSets[normalizedSetKey] ? normalizedSetKey : safeDefaultKey(nameSets, normalizedSetKey);
+    : safeDefaultKey(nameSets, normalizedSetKey);
   const set = nameSets[resolvedSetKey];
   if (!set) return { name: "Безымянный", gender: "neutral", setKey: resolvedSetKey || null };
 
@@ -85,7 +94,7 @@ export function generateNameFromDefinition(set, setKey = null, gender = "random"
   if (!set || typeof set !== "object") return { name: "Безымянный", gender: "neutral", setKey };
 
   if (Array.isArray(set.entries) && set.entries.length) {
-    const resolvedGender = gender && gender !== "random" ? gender : "neutral";
+    const resolvedGender = GENDERS.includes(gender) ? gender : "neutral";
     return { name: String(weightedRandom(set.entries) || "Безымянный"), gender: resolvedGender, setKey };
   }
 
@@ -110,9 +119,8 @@ export function generateNameFromDefinition(set, setKey = null, gender = "random"
   };
 
   let name = chooseNamePattern(set, !!family);
-  for (const [token, value] of Object.entries(values)) name = name.replaceAll(`{${token}}`, value || "");
+  name = name.replace(/\{([^}]+)\}/g, (_, token) => Object.hasOwn(values, token) ? values[token] : "");
   name = name
-    .replace(/\{[^}]+\}/g, "")
     .replace(/\s+/g, " ")
     .replace(/\s+([,.;:])/g, "$1")
     .replace(/([,.;:])\s*([,.;:])/g, "$1")
@@ -122,8 +130,8 @@ export function generateNameFromDefinition(set, setKey = null, gender = "random"
 }
 
 export function resolveGender(set, gender) {
-  if (gender && gender !== "random" && Array.isArray(set?.[gender]) && set[gender].length) return gender;
-  const pools = ["male", "female", "neutral"].filter(key => Array.isArray(set?.[key]) && set[key].length);
+  if (GENDERS.includes(gender) && [gender, ...GIVEN_POOLS].some(key => Array.isArray(set?.[key]) && set[key].length)) return gender;
+  const pools = GENDERS.filter(key => Array.isArray(set?.[key]) && set[key].length);
   if (pools.length) return randomOf(pools);
   return "neutral";
 }
@@ -141,21 +149,29 @@ export function previewNamesFromDefinition(set, setKey = null, gender = "random"
 export function validateNameSet(set, key = "") {
   const errors = [];
   const warnings = [];
-  if (!set || typeof set !== "object" || Array.isArray(set)) errors.push("Набор должен быть JSON-объектом.");
+  if (!set || typeof set !== "object" || Array.isArray(set)) errors.push(game.i18n.localize("FBL_CF.Manager.InvalidObject"));
   else {
     const hasEntries = Array.isArray(set.entries) && set.entries.length > 0;
     const hasGiven = ["male", "female", "neutral", "given", "names"].some(field => Array.isArray(set[field]) && set[field].length);
-    if (!hasEntries && !hasGiven) errors.push("Нет ни entries, ни одного пула имён.");
-    const patterns = Array.isArray(set.patterns) ? set.patterns : set.pattern ? [set.pattern] : [];
+    if (!hasEntries && !hasGiven) errors.push(game.i18n.localize("FBL_CF.Manager.MissingNamePool"));
+    if (set.pattern != null && typeof set.pattern !== "string") errors.push(game.i18n.format("FBL_CF.Manager.InvalidNamePool", { field: "pattern" }));
+    const patterns = Array.isArray(set.patterns) ? set.patterns : typeof set.pattern === "string" && set.pattern ? [set.pattern] : [];
     for (const pattern of patterns) {
-      const value = typeof pattern === "object" ? pattern.value ?? pattern.pattern : pattern;
-      if (!String(value || "").includes("{given}") && !hasEntries) warnings.push(`Шаблон «${value}» не содержит {given}.`);
+      const value = normalizeWeightedEntry(pattern)?.value;
+      if (value && !value.includes("{given}") && !hasEntries) warnings.push(game.i18n.format("FBL_CF.Manager.PatternMissingGiven", { pattern: value }));
     }
-    for (const [field, value] of Object.entries(set)) {
-      if (!Array.isArray(value)) continue;
-      const strings = value.map(entry => typeof entry === "object" ? entry.value ?? entry.name ?? entry.pattern : entry).filter(Boolean).map(String);
-      const duplicates = strings.filter((entry, index) => strings.indexOf(entry) !== index);
-      if (duplicates.length) warnings.push(`${field}: найдено повторов ${new Set(duplicates).size}.`);
+    for (const field of NAME_POOLS) {
+      if (set[field] == null) continue;
+      const values = Array.isArray(set[field]) ? set[field].map(normalizeWeightedEntry) : [null];
+      if (values.includes(null)) errors.push(game.i18n.format("FBL_CF.Manager.InvalidNamePool", { field }));
+      const names = values.filter(Boolean).map(entry => entry.value.trim());
+      const repeats = new Set();
+      const seen = new Set();
+      for (const name of names) {
+        if (seen.has(name)) repeats.add(name);
+        seen.add(name);
+      }
+      if (repeats.size) warnings.push(game.i18n.format("FBL_CF.Manager.DuplicateNames", { field, count: repeats.size }));
     }
   }
   return { key, valid: !errors.length, errors, warnings };

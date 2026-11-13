@@ -463,7 +463,6 @@
 .fbl-cf-forge.is-busy .fbl-cf-forge__extras,
 .fbl-cf-forge.is-busy .fbl-cf-footer-actions {
   opacity: 0.58;
-  pointer-events: none;
 }
 
 /* Shared cards and managers */

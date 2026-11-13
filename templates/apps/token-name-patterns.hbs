@@ -7,7 +7,7 @@
     <div class="fbl-cf-metric"><strong>{{count}}</strong><span>{{localize "FBL_CF.TokenPatterns.Valid"}}</span></div>
     <div class="fbl-cf-metric"><strong>{{invalidCount}}</strong><span>{{localize "FBL_CF.TokenPatterns.Invalid"}}</span></div>
   </div>
-  <textarea name="patterns" spellcheck="false">{{value}}</textarea>
+  <textarea name="patterns" spellcheck="false" aria-label="{{localize 'FBL_CF.TokenPatterns.Title'}}">{{value}}</textarea>
   <p class="hint">{{localize "FBL_CF.TokenPatterns.PlaceholderHint"}}</p>
   <div class="fbl-cf-suggestions">{{#each examples}}<span class="fbl-cf-chip">{{this}}</span>{{/each}}</div>
   <footer class="fbl-cf-forge__footer">

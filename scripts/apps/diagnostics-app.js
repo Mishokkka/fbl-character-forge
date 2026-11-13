@@ -53,12 +53,12 @@ export class CharacterForgeDiagnosticsApp extends HandlebarsApplicationMixin(App
     return { ...baseContext, ...report };
   }
 
-  async _onRender(context, options) {
-    await super._onRender(context, options);
-  }
-
   async _onClickAction(event, target) {
-    return this.#action(event, target?.dataset?.action);
+    try {
+      return await this.#action(event, target?.dataset?.action);
+    } catch (err) {
+      ui.notifications?.error?.(err?.message || String(err));
+    }
   }
 
   async #action(event, action) {
@@ -69,21 +69,22 @@ export class CharacterForgeDiagnosticsApp extends HandlebarsApplicationMixin(App
         break;
       case "clear-cache": {
         const count = clearAssetBrowseCache();
-        ui.notifications?.info?.(`Character Forge: очищено записей кеша: ${count}.`);
+        ui.notifications?.info?.(game.i18n.format("FBL_CF.Diagnostics.CacheCleared", { count }));
         await this.render({ force: true });
         break;
       }
       case "clean-registry": {
         const result = await cleanupOrphanedAssets({ remove: true });
-        ui.notifications?.info?.(`Character Forge: удалено записей-сирот: ${result.removed}.`);
+        ui.notifications?.info?.(game.i18n.format("FBL_CF.Diagnostics.RegistryCleaned", { count: result.removed }));
         await this.render({ force: true });
         break;
       }
       case "copy-report": {
         const text = JSON.stringify(this.report || {}, null, 2);
         if (game.clipboard?.copyPlainText) await game.clipboard.copyPlainText(text);
-        else await navigator.clipboard?.writeText?.(text);
-        ui.notifications?.info?.("Character Forge: отчёт скопирован.");
+        else if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+        else throw new Error(game.i18n.localize("FBL_CF.Diagnostics.ClipboardUnavailable"));
+        ui.notifications?.info?.(game.i18n.localize("FBL_CF.Diagnostics.ReportCopied"));
         break;
       }
     }

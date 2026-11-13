@@ -19,9 +19,9 @@ export function applyNameSetAdditions(nameSets) {
     }
     for (const [field, values] of Object.entries(additions)) {
       if (!Array.isArray(values)) continue;
-      if (!Array.isArray(nameSets[key][field])) nameSets[key][field] = [];
-      const before = nameSets[key][field].length;
-      nameSets[key][field] = unique([...nameSets[key][field], ...values]);
+      const pool = Array.isArray(nameSets[key][field]) ? nameSets[key][field] : [];
+      const before = pool.length;
+      nameSets[key] = { ...nameSets[key], [field]: unique([...pool, ...values]) };
       if (nameSets[key][field].length !== before) changed = true;
     }
   }

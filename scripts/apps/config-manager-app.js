@@ -1,10 +1,12 @@
 import { MODULE_ID } from "../constants.js";
 import { DEFAULT_ART_SETS } from "../data/art-sets.js";
 import { DEFAULT_NAME_SETS } from "../data/name-sets.js";
-import { getArtSets, getNameSets, setArtSets, setNameSets } from "../services/settings.js";
+import { getArtSets, getNameSets } from "../services/settings.js";
 import { previewNamesFromDefinition, validateNameSet } from "../services/names.js";
 import { validateArtSet } from "../services/art.js";
-import { clearAssetBrowseCache } from "../services/asset-browser.js";
+import { isConfigKey } from "../services/config.js";
+import { runWorldOperation } from "../services/world-operations.js";
+import { escapeHtml, getSetAliases, resolveSetKey } from "../utils.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -17,12 +19,6 @@ function saveJson(data, filename) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(link.href);
-}
-
-function looksLikeSingleConfig(mode, value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if (mode === "names") return ["male", "female", "neutral", "given", "names", "entries", "pattern", "patterns"].some(key => key in value);
-  return ["folder", "portraitFolder", "tokenFolder", "portraitFiles", "tokenFiles", "folders", "cultures"].some(key => key in value);
 }
 
 class ConfigManagerApp extends HandlebarsApplicationMixin(ApplicationV2) {
@@ -40,7 +36,9 @@ class ConfigManagerApp extends HandlebarsApplicationMixin(ApplicationV2) {
   mode = "names";
   selectedKey = null;
   draft = "";
+  savedDraft = null;
   status = "";
+  busy = false;
 
   constructor(options = {}) {
     super(options);
@@ -64,20 +62,18 @@ class ConfigManagerApp extends HandlebarsApplicationMixin(ApplicationV2) {
     return this.mode === "names" ? DEFAULT_NAME_SETS : DEFAULT_ART_SETS;
   }
 
-  async setData(data) {
-    if (this.mode === "names") await setNameSets(data);
-    else {
-      await setArtSets(data);
-      clearAssetBrowseCache();
-    }
+  setData(changes, snapshot = this.getData(), createDraft = false) {
+    const expected = Object.fromEntries(Object.keys(changes).map(key => [key, snapshot[key] ?? null]));
+    return runWorldOperation("updateConfig", { mode: this.mode, changes, expected, createDraft });
   }
 
   validate(value, key = this.selectedKey) {
     return this.mode === "names" ? validateNameSet(value, key) : validateArtSet(value, key);
   }
 
-  #loadDraft() {
-    const value = this.selectedKey ? this.getData()[this.selectedKey] : {};
+  #loadDraft(data = this.getData()) {
+    const value = this.selectedKey ? data[this.selectedKey] : {};
+    this.savedDraft = value ?? null;
     this.draft = JSON.stringify(value || {}, null, 2);
     this.status = "";
   }
@@ -113,7 +109,9 @@ class ConfigManagerApp extends HandlebarsApplicationMixin(ApplicationV2) {
     await super._onRender(context, options);
     const root = this.element;
     root?.querySelector?.("textarea[name='draft']")?.addEventListener("input", event => { this.draft = event.currentTarget.value; });
-    root?.querySelector?.("input[data-import-file]")?.addEventListener("change", event => this.#importFile(event.currentTarget.files?.[0]));
+    root?.querySelector?.("input[data-import-file]")?.addEventListener("change", event => {
+      if (!this.busy) void this.#importFile(event.currentTarget.files?.[0]);
+    });
   }
 
   async _onClickAction(event, target) {
@@ -122,6 +120,8 @@ class ConfigManagerApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   async #action(event, button) {
     event.preventDefault();
+    if (this.busy) return;
+    this.busy = true;
     const action = button.dataset.action;
     try {
       switch (action) {
@@ -132,11 +132,8 @@ class ConfigManagerApp extends HandlebarsApplicationMixin(ApplicationV2) {
           break;
         case "save": {
           const parsed = JSON.parse(this.draft || "{}");
-          const validation = this.validate(parsed, this.selectedKey);
-          if (!validation.valid) throw new Error(validation.errors.join("; "));
-          const data = this.getData();
-          data[this.selectedKey] = parsed;
-          await this.setData(data);
+          const data = await this.setData({ [this.selectedKey]: parsed }, { [this.selectedKey]: this.savedDraft });
+          this.#loadDraft(data);
           this.status = game.i18n.localize("FBL_CF.Manager.Saved");
           await this.render({ force: true });
           break;
@@ -145,13 +142,13 @@ class ConfigManagerApp extends HandlebarsApplicationMixin(ApplicationV2) {
           const data = this.getData();
           let index = 1;
           let key = `new-${this.mode === "names" ? "culture" : "art-set"}`;
-          while (data[key]) key = `new-${this.mode === "names" ? "culture" : "art-set"}-${++index}`;
-          data[key] = this.mode === "names"
+          while (resolveSetKey(data, key)) key = `new-${this.mode === "names" ? "culture" : "art-set"}-${++index}`;
+          const definition = this.mode === "names"
             ? { label: key, male: ["Имя"], female: ["Имя"], family: ["Фамилия"], pattern: "{given} {family}" }
             : { label: key, folder: "", pairByName: true, markUsed: true };
-          await this.setData(data);
+          const saved = await this.setData({ [key]: definition }, data, true);
           this.selectedKey = key;
-          this.#loadDraft();
+          this.#loadDraft(saved);
           await this.render({ force: true });
           break;
         }
@@ -159,43 +156,41 @@ class ConfigManagerApp extends HandlebarsApplicationMixin(ApplicationV2) {
           if (!this.selectedKey) return;
           const confirmed = await foundry.applications.api.DialogV2.confirm({
             window: { title: game.i18n.localize("FBL_CF.Manager.Delete") },
-            content: `<p>${game.i18n.format("FBL_CF.Manager.DeleteConfirm", { key: this.selectedKey })}</p>`,
+            content: `<p>${game.i18n.format("FBL_CF.Manager.DeleteConfirm", { key: escapeHtml(this.selectedKey) })}</p>`,
             rejectClose: false
           });
           if (!confirmed) return;
-          const data = this.getData();
-          delete data[this.selectedKey];
-          await this.setData(data);
+          const data = await this.setData({ [this.selectedKey]: null }, { [this.selectedKey]: this.savedDraft });
           this.selectedKey = Object.keys(data)[0] || null;
-          this.#loadDraft();
+          this.#loadDraft(data);
           await this.render({ force: true });
           break;
         }
         case "reset": {
           const defaults = this.getDefaults();
-          if (!defaults[this.selectedKey]) throw new Error(game.i18n.localize("FBL_CF.Manager.NoDefault"));
-          const data = this.getData();
-          data[this.selectedKey] = foundry.utils.deepClone(defaults[this.selectedKey]);
-          await this.setData(data);
-          this.#loadDraft();
+          const defaultKey = [this.selectedKey, ...getSetAliases(this.savedDraft)].find(key => Object.hasOwn(defaults, key));
+          if (!defaultKey) throw new Error(game.i18n.localize("FBL_CF.Manager.NoDefault"));
+          const data = await this.setData({ [this.selectedKey]: defaults[defaultKey] }, { [this.selectedKey]: this.savedDraft });
+          this.#loadDraft(data);
           await this.render({ force: true });
           break;
         }
         case "rename": {
           const input = this.element?.querySelector?.("input[name='entryKey']");
           const nextKey = String(input?.value || "").trim();
-          if (!/^[A-Za-z0-9_-]+$/.test(nextKey)) throw new Error(game.i18n.localize("FBL_CF.Manager.InvalidKey"));
+          if (!isConfigKey(nextKey)) throw new Error(game.i18n.localize("FBL_CF.Manager.InvalidKey"));
           if (nextKey === this.selectedKey) return;
           const data = this.getData();
-          if (data[nextKey]) throw new Error(game.i18n.localize("FBL_CF.Manager.KeyExists"));
+          const existingKey = resolveSetKey(data, nextKey);
+          if (existingKey && existingKey !== this.selectedKey) throw new Error(game.i18n.localize("FBL_CF.Manager.KeyExists"));
           const parsed = JSON.parse(this.draft || "{}");
-          const validation = this.validate(parsed, nextKey);
-          if (!validation.valid) throw new Error(validation.errors.join("; "));
-          data[nextKey] = parsed;
-          delete data[this.selectedKey];
-          await this.setData(data);
+          const aliases = [...new Set([...getSetAliases(this.savedDraft), ...getSetAliases(parsed), this.selectedKey])]
+            .filter(key => key !== nextKey);
+          const saved = await this.setData({ [nextKey]: { ...parsed, aliases }, [this.selectedKey]: null }, {
+            ...data, [this.selectedKey]: this.savedDraft
+          });
           this.selectedKey = nextKey;
-          this.#loadDraft();
+          this.#loadDraft(saved);
           await this.render({ force: true });
           break;
         }
@@ -215,41 +210,41 @@ class ConfigManagerApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.status = err?.message || String(err);
       ui.notifications?.error?.(this.status);
       await this.render({ force: true });
+    } finally {
+      this.busy = false;
     }
   }
 
   async #importFile(file) {
     if (!file) return;
+    this.busy = true;
     try {
       const parsed = JSON.parse(await file.text());
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(game.i18n.localize("FBL_CF.Manager.ImportInvalid"));
       const data = this.getData();
-      let imported;
-      if (looksLikeSingleConfig(this.mode, parsed)) {
+      const entries = Object.entries(parsed);
+      const collection = entries.length && entries.every(([key, value]) => isConfigKey(key) && this.validate(value, key).valid);
+      const single = this.validate(parsed, this.selectedKey);
+      let changes;
+      if (collection) changes = parsed;
+      else if (single.valid) {
         if (!this.selectedKey) throw new Error(game.i18n.localize("FBL_CF.Manager.Empty"));
-        const validation = this.validate(parsed, this.selectedKey);
-        if (!validation.valid) throw new Error(validation.errors.join("; "));
-        data[this.selectedKey] = parsed;
-        imported = [this.selectedKey];
+        changes = { [this.selectedKey]: parsed };
       } else {
-        imported = Object.keys(parsed || {});
-        if (!imported.length) throw new Error(game.i18n.localize("FBL_CF.Manager.ImportInvalid"));
-        for (const key of imported) {
-          if (!/^[A-Za-z0-9_-]+$/.test(key)) throw new Error(`${game.i18n.localize("FBL_CF.Manager.InvalidKey")} (${key})`);
-          const validation = this.validate(parsed[key], key);
-          if (!validation.valid) throw new Error(`${key}: ${validation.errors.join("; ")}`);
-        }
-        Object.assign(data, parsed);
-        this.selectedKey = imported[0];
+        throw new Error(`${game.i18n.localize("FBL_CF.Manager.ImportInvalid")} ${single.errors.join("; ")}`);
       }
-      await this.setData(data);
-      this.#loadDraft();
+      const saved = await this.setData(changes, data);
+      const imported = Object.keys(changes);
+      this.selectedKey = imported[0];
+      this.#loadDraft(saved);
       this.status = `${game.i18n.localize("FBL_CF.Manager.Imported")}: ${imported.length}`;
       await this.render({ force: true });
     } catch (err) {
       this.status = err?.message || String(err);
       ui.notifications?.error?.(this.status);
       await this.render({ force: true });
+    } finally {
+      this.busy = false;
     }
   }
 }

@@ -1,68 +1,63 @@
 import { MODULE_ID } from "../constants.js";
 import { getArtSets, getGlobalTokenNamePatterns, getNameSets, splitTokenNamePatterns } from "./settings.js";
-import { browseDirectories, browseImages } from "./asset-browser.js";
+import { browseDirectories, browseImages, isMissingArtFolder } from "./asset-browser.js";
 import { getUsedPathSet, shouldUseAssetRegistry } from "./asset-registry.js";
-import { escapeHtml, isImagePath, normalizeFoundryPath, randomOf, unique } from "../utils.js";
+import { normalizeNameSetKey } from "./names.js";
+import { getSetAliases, isImagePath, normalizeFoundryPath, randomOf, resolveSetKey, unique } from "../utils.js";
 
-export async function rollArt(artSetKey, context = {}) {
+export async function rollArt(artSetKey, context = {}, { resolved: preResolved } = {}) {
   const artSets = getArtSets();
-  const baseSet = artSets[artSetKey];
-  if (!baseSet) throw new Error(`Набор артов не найден: ${artSetKey}`);
+  const key = resolveSetKey(artSets, artSetKey);
+  const baseSet = artSets[key];
+  if (!baseSet) throw new Error(game.i18n.format("FBL_CF.Status.ArtSetMissing", { set: artSetKey }));
 
-  let resolved = resolveArtSetForContext(baseSet, context);
-  let set = resolved.set;
-  let candidates = await getArtCandidates(set);
-
+  let resolved = preResolved || resolveArtSetForContext(baseSet, context);
+  let candidates;
   const hasRequestedSubset = isSpecificArtSubset(context.artSubsetKey || context.artSubset || context.artSubfolder);
-  if (!candidates.portraitFiles.length && !candidates.tokenFiles.length && hasRequestedSubset && context.fallbackArtSubset !== false) {
-    resolved = resolveArtSetForContext(baseSet, { ...context, artSubsetKey: "general", artSubset: "general", artSubfolder: "" });
-    set = resolved.set;
-    candidates = await getArtCandidates(set);
+  const fallback = hasRequestedSubset && context.fallbackArtSubset !== false;
+  try {
+    candidates = await getArtCandidates(resolved.set, { artSubsetKey: resolved.artSubsetKey });
+  } catch (error) {
+    if (!fallback || !isMissingArtFolder(error)) throw error;
   }
+  if (fallback && (!candidates || !(candidates.portraitFiles.length || candidates.tokenFiles.length))) {
+    resolved = resolveArtSetForContext(baseSet, { ...context, resolvedGender: resolved.gender, artSubsetKey: "general" });
+    candidates = await getArtCandidates(resolved.set);
+  }
+  const set = resolved.set;
 
   if (!candidates.portraitFiles.length && !candidates.tokenFiles.length) {
     const contextText = getArtContextLabel(resolved);
-    throw new Error(`В наборе «${baseSet.label || artSetKey}»${contextText ? ` (${contextText})` : ""} не найдено изображений.`);
+    throw new Error(game.i18n.format("FBL_CF.Status.ArtMissing", {
+      set: baseSet.label || key, context: contextText ? " (" + contextText + ")" : ""
+    }));
   }
 
-  const used = shouldUseAssetRegistry(baseSet) ? getUsedPathSet(artSetKey) : new Set();
+  const used = getTrackedPaths(key, baseSet, resolved);
   const reuseWhenAllUsed = game.settings.get(MODULE_ID, "reuseWhenAllUsed");
 
-  let portraitPool = getAvailablePortraitPool(candidates, set, used);
-  let usingReuse = false;
-
-  if (!portraitPool.length && candidates.portraitFiles.length && reuseWhenAllUsed) {
-    portraitPool = candidates.portraitFiles;
-    usingReuse = true;
-  }
-
-  if (!portraitPool.length && candidates.portraitFiles.length) {
+  const pairedTokens = indexPairedTokens(candidates, set);
+  const portraitPool = getAvailablePortraitPool(candidates, set, used, pairedTokens);
+  const tokenPool = candidates.tokenFiles.filter(path => !used.has(path));
+  const exhausted = candidates.portraitFiles.length ? !portraitPool.length : !tokenPool.length;
+  if (exhausted && !reuseWhenAllUsed) {
     const contextText = getArtContextLabel(resolved);
-    throw new Error(`Все портреты в наборе «${baseSet.label || artSetKey}»${contextText ? ` (${contextText})` : ""} уже заняты. Сбрось занятость набора или включи повтор после исчерпания.`);
+    throw new Error(game.i18n.format("FBL_CF.Status.ArtExhausted", {
+      set: baseSet.label || key,
+      context: contextText ? " (" + contextText + ")" : ""
+    }));
   }
 
-  let portrait = randomOf(portraitPool) || "";
-  let token = "";
-
-  if (set.pairByName && portrait && candidates.tokenFiles.length) {
-    const paired = findPairedToken(portrait, candidates.tokenFiles, set);
-    const freeTokens = candidates.tokenFiles.filter(candidate => !used.has(candidate));
-    const canReusePaired = usingReuse || !freeTokens.length;
-    if (paired && (!used.has(paired) || (reuseWhenAllUsed && canReusePaired))) token = paired;
-  }
-
-  if (!token && candidates.tokenFiles.length) {
-    let tokenPool = candidates.tokenFiles.filter(t => !used.has(t));
-    if (!tokenPool.length && reuseWhenAllUsed) tokenPool = candidates.tokenFiles;
-    token = randomOf(tokenPool) || "";
-  }
-
-  if (!portrait && token) portrait = token;
-  if (!token && portrait) token = portrait;
+  const portrait = randomOf(exhausted ? candidates.portraitFiles : portraitPool);
+  const pairs = pairedTokens.get(portrait) || [];
+  const availableTokens = tokenPool.length || !reuseWhenAllUsed ? tokenPool : candidates.tokenFiles;
+  const token = pairs.find(path => !used.has(path))
+    || (exhausted && pairs[0])
+    || (!set.pairByName || !portrait ? randomOf(availableTokens) : null);
 
   return {
-    portrait,
-    token,
+    portrait: portrait || token,
+    token: token || portrait,
     gender: resolved.gender,
     cultureKey: resolved.cultureKey,
     artSubsetKey: resolved.artSubsetKey || null,
@@ -71,16 +66,19 @@ export async function rollArt(artSetKey, context = {}) {
 }
 
 export async function inspectArtSet(artSetKey, context = {}) {
-  const baseSet = getArtSets()[artSetKey];
-  if (!baseSet) throw new Error(`Набор артов не найден: ${artSetKey}`);
+  const artSets = getArtSets();
+  const key = resolveSetKey(artSets, artSetKey);
+  const baseSet = artSets[key];
+  if (!baseSet) throw new Error(game.i18n.format("FBL_CF.Status.ArtSetMissing", { set: artSetKey }));
   const resolved = resolveArtSetForContext(baseSet, context);
   const set = resolved.set;
-  const candidates = await getArtCandidates(set);
-  const used = shouldUseAssetRegistry(baseSet) ? getUsedPathSet(artSetKey) : new Set();
+  const candidates = await getArtCandidates(set, { artSubsetKey: resolved.artSubsetKey });
+  const used = getTrackedPaths(key, baseSet, resolved);
   const portraitPool = getAvailablePortraitPool(candidates, set, used);
   return {
     portraitsTotal: candidates.portraitFiles.length,
     tokensTotal: candidates.tokenFiles.length,
+    tokensAvailable: candidates.tokenFiles.filter(path => !used.has(path)).length,
     portraitsAvailable: portraitPool.length,
     usedCount: used.size,
     folder: getArtSetFolderLabel(set),
@@ -89,19 +87,22 @@ export async function inspectArtSet(artSetKey, context = {}) {
   };
 }
 
+function getTrackedPaths(key, baseSet, resolved) {
+  return resolved.branchMarkUsed && shouldUseAssetRegistry(baseSet) ? getUsedPathSet(key) : new Set();
+}
+
 export function resolveArtSetForContext(baseSet, context = {}) {
-  const cultureKey = context.resolvedCultureKey || context.cultureKey || context.resolvedNameSetKey || context.nameSetKey || null;
-  let gender = normalizeGenderKey(context.gender || context.resolvedGender || context.selectedGender || "random");
+  const requestedCulture = context.resolvedCultureKey || context.resolvedNameSetKey || context.cultureKey || context.nameSetKey || null;
+  const nameSets = getNameSets();
+  const cultureKey = normalizeNameSetKey(requestedCulture, nameSets) || null;
+  let gender = normalizeGenderKey(context.resolvedGender || context.gender || context.selectedGender);
 
   if (gender === "random") {
     const available = getAvailableArtGenders(baseSet, cultureKey);
     gender = randomOf(available) || "random";
   }
 
-  const branch = getArtBranch(baseSet, cultureKey, gender)
-    || getArtBranch(baseSet, cultureKey, "neutral")
-    || getArtBranch(baseSet, null, gender)
-    || getArtBranch(baseSet, cultureKey, null);
+  const branch = getArtBranch(baseSet, cultureKey, gender, getSetAliases(nameSets[cultureKey]));
 
   let set = branch ? mergeArtBranch(baseSet, branch) : shallowArtSetCopy(baseSet);
   const artSubsetKey = normalizeArtSubsetKey(context.artSubsetKey || context.artSubset || context.artSubfolder || "general");
@@ -111,8 +112,6 @@ export function resolveArtSetForContext(baseSet, context = {}) {
     const applied = applyArtSubsetToSet(set, artSubsetKey);
     set = applied.set;
     artSubsetFolder = applied.folder;
-  } else if (context.artSubsetKey || context.artSubset || context.artSubfolder) {
-    set = { ...set, recursive: false };
   }
 
   return {
@@ -122,7 +121,8 @@ export function resolveArtSetForContext(baseSet, context = {}) {
     branchFound: !!branch,
     baseLabel: baseSet.label || "",
     artSubsetKey,
-    artSubsetFolder
+    artSubsetFolder,
+    branchMarkUsed: branch?.markUsed !== false
   };
 }
 
@@ -132,51 +132,28 @@ export function normalizeGenderKey(value) {
 }
 
 export function getAvailableArtGenders(set, cultureKey = null) {
-  const genders = ["male", "female", "neutral"].filter(gender => !!getArtBranch(set, cultureKey, gender));
+  const aliases = getSetAliases(getNameSets()[cultureKey]);
+  const genders = ["male", "female", "neutral"].filter(gender => !!getArtBranch(set, cultureKey, gender, aliases, true));
   return genders.length ? genders : ["male", "female"];
 }
 
-export function getArtBranch(set, cultureKey = null, gender = null) {
+export function getArtBranch(set, cultureKey = null, gender = null, aliases = [], genderOnly = false) {
   const candidates = [];
-
-  if (gender && cultureKey) {
-    candidates.push(
-      set?.folders?.[gender]?.[cultureKey],
-      set?.folders?.[cultureKey]?.[gender],
-      set?.cultures?.[cultureKey]?.[gender],
-      set?.byCulture?.[cultureKey]?.[gender],
-      set?.byGenderCulture?.[gender]?.[cultureKey],
-      set?.byGender?.[gender]?.[cultureKey],
-      set?.[gender]?.[cultureKey]
-    );
+  const cultures = [cultureKey, ...aliases].filter(Boolean);
+  const byCulture = key => [set.folders?.[key], set.cultures?.[key], set.byCulture?.[key], set[key]];
+  const byGender = key => [set.folders?.[key], set.byGenderCulture?.[key], set.byGender?.[key], set[key]];
+  const genders = genderOnly ? [gender] : unique([gender, "neutral"]);
+  const fallbacks = branches => branches.flatMap(branch => [branch?.default, branch]);
+  for (const key of genders) {
+    const branches = byGender(key);
+    for (const culture of cultures) {
+      candidates.push(...branches.map(branch => branch?.[culture]), ...byCulture(culture).map(branch => branch?.[key]));
+    }
+    if (genderOnly) candidates.push(...fallbacks(branches));
   }
-
-  if (cultureKey) {
-    candidates.push(
-      set?.folders?.[cultureKey]?.default,
-      set?.folders?.[cultureKey]?.folder,
-      set?.cultures?.[cultureKey]?.default,
-      set?.cultures?.[cultureKey]?.folder,
-      set?.byCulture?.[cultureKey]?.default,
-      set?.byCulture?.[cultureKey]?.folder,
-      set?.[cultureKey]?.default,
-      set?.[cultureKey]?.folder
-    );
+  if (!genderOnly) {
+    candidates.push(...fallbacks(cultures.flatMap(byCulture)), ...fallbacks(genders.flatMap(byGender)), set.default);
   }
-
-  if (gender) {
-    candidates.push(
-      set?.folders?.[gender]?.default,
-      set?.folders?.[gender]?.folder,
-      set?.byGender?.[gender]?.default,
-      set?.byGender?.[gender]?.folder,
-      set?.[gender]?.default,
-      set?.[gender]?.folder,
-      set?.[gender]
-    );
-  }
-
-  candidates.push(set?.default);
 
   for (const candidate of candidates) {
     const branch = normalizeArtBranch(candidate);
@@ -210,8 +187,22 @@ export function isArtBranchConfig(candidate) {
 
 export function mergeArtBranch(baseSet, branch) {
   const merged = shallowArtSetCopy(baseSet);
-  for (const [key, value] of Object.entries(branch || {})) merged[key] = value;
-  return merged;
+  if (branch.folder || branch.portraitFiles || branch.portraits || branch.portraitFolder) {
+    delete merged.portraitFiles;
+    delete merged.portraits;
+    delete merged.portraitFolder;
+  }
+  if (branch.folder || branch.tokenFiles || branch.tokens || branch.tokenFolder) {
+    delete merged.tokenFiles;
+    delete merged.tokens;
+    delete merged.tokenFolder;
+  }
+  if (!branch.folder && (branch.portraitFiles || branch.portraits || branch.portraitFolder)) delete merged.folder;
+  if (!branch.folder && (branch.tokenFiles || branch.tokens || branch.tokenFolder) && merged.folder) {
+    merged.portraitFolder ||= merged.folder;
+    delete merged.folder;
+  }
+  return { ...merged, ...branch };
 }
 
 export function shallowArtSetCopy(set) {
@@ -232,23 +223,20 @@ export function getArtContextLabel(resolved) {
   const parts = [];
   const nameSets = getNameSets();
   if (resolved?.cultureKey) parts.push(nameSets[resolved.cultureKey]?.label || resolved.cultureKey);
-  if (resolved?.gender && resolved.gender !== "random") {
-    const labels = { male: "мужской пул", female: "женский пул", neutral: "нейтральный пул" };
-    parts.push(labels[resolved.gender] || resolved.gender);
+  if (["male", "female", "neutral"].includes(resolved?.gender)) {
+    const gender = resolved.gender[0].toUpperCase() + resolved.gender.slice(1);
+    parts.push(game.i18n.localize("FBL_CF.Gender." + gender));
   }
-  if (isSpecificArtSubset(resolved?.artSubsetKey)) parts.push(`набор ${resolved.artSubsetKey}`);
+  if (isSpecificArtSubset(resolved?.artSubsetKey)) parts.push(resolved.artSubsetKey);
   return parts.join(", ");
 }
 
-export function getAvailablePortraitPool(candidates, set, used) {
+export function getAvailablePortraitPool(candidates, set, used, pairs = indexPairedTokens(candidates, set)) {
   if (!used?.size) return candidates.portraitFiles.slice();
   return candidates.portraitFiles.filter(p => {
     if (used.has(p)) return false;
-    if (set.pairByName && candidates.tokenFiles.length) {
-      const paired = findPairedToken(p, candidates.tokenFiles, set);
-      if (paired && used.has(paired)) return false;
-    }
-    return true;
+    const tokens = pairs.get(p);
+    return !tokens?.length || tokens.some(token => !used.has(token));
   });
 }
 
@@ -256,32 +244,47 @@ export async function getArtCandidates(set, options = {}) {
   const source = set.source || "data";
   const bucket = set.bucket || null;
   const recursive = set.recursive ?? game.settings.get(MODULE_ID, "recursiveFolders");
-  const sameFolder = !!(set.sameFolderTokenSuffix || set.folder || samePath(set.portraitFolder, set.tokenFolder));
-
-  if (sameFolder) {
-    const folder = set.folder || set.portraitFolder || set.tokenFolder;
-    const allFiles = await resolveAssetList(folder, source, bucket, recursive, options);
-    const split = splitSameFolderAssets(allFiles, getTokenRules(set));
-    return { portraitFiles: unique(split.portraits), tokenFiles: unique(split.tokens) };
+  const { shared, portrait, token } = getArtSources(set);
+  if (shared) {
+    const files = await resolveAssetList(shared, source, bucket, recursive, options);
+    const split = splitSameFolderAssets(files, getTokenRules(set));
+    return { portraitFiles: split.portraits, tokenFiles: split.tokens };
   }
 
-  const portraitFiles = await resolveAssetList(set.portraitFiles ?? set.portraits ?? set.portraitFolder, source, bucket, recursive, options);
-  const tokenFiles = await resolveAssetList(set.tokenFiles ?? set.tokens ?? set.tokenFolder, source, bucket, recursive, options);
-
+  const [portraitFiles, tokenFiles] = await Promise.all([portrait, token].map(async path => {
+    try {
+      return await resolveAssetList(path, source, bucket, recursive, options);
+    } catch (error) {
+      if (isSpecificArtSubset(options.artSubsetKey) && isMissingArtFolder(error)) return [];
+      throw error;
+    }
+  }));
   return { portraitFiles: unique(portraitFiles), tokenFiles: unique(tokenFiles) };
+}
+
+function getArtSources(set) {
+  const explicitPortrait = set.portraitFiles ?? set.portraits;
+  const explicitToken = set.tokenFiles ?? set.tokens;
+  const portrait = explicitPortrait ?? (set.portraitFolder || set.folder);
+  const token = explicitToken ?? set.tokenFolder;
+  const sharedFolder = samePath(portrait, token) || (!token && samePath(portrait, set.folder))
+    || (set.sameFolderTokenSuffix && (!portrait || !token));
+  const shared = explicitPortrait == null && explicitToken == null && sharedFolder ? portrait || token : null;
+  return { shared, portrait, token };
 }
 
 export function splitSameFolderAssets(files, tokenRulesOrSuffixes, maybeSet = null) {
   const rules = normalizeTokenRules(tokenRulesOrSuffixes, maybeSet);
-  if (!rules.suffixes.length && !rules.patterns.length) return { portraits: files, tokens: files };
+  if (!rules.suffixes.length && !rules.patterns.length) return { portraits: files, tokens: [] };
 
-  const stems = new Map(files.map(file => [normalizeStem(assetStem(file)), file]));
+  const key = (file, stem) => JSON.stringify([assetDirectory(file), normalizeStem(stem)]);
+  const stems = new Set(files.flatMap(file => [key(file, assetStem(file)), key(file, pairBase(file))]));
   const tokenSet = new Set();
 
   for (const file of files) {
     const stem = assetStem(file);
     const bases = getTokenBaseCandidates(stem, rules);
-    if (bases.some(base => normalizeStem(base) !== normalizeStem(stem) && stems.has(normalizeStem(base)))) tokenSet.add(file);
+    if (bases.some(base => normalizeStem(base) !== normalizeStem(stem) && stems.has(key(file, base)))) tokenSet.add(file);
   }
 
   const tokens = files.filter(f => tokenSet.has(f));
@@ -291,7 +294,7 @@ export function splitSameFolderAssets(files, tokenRulesOrSuffixes, maybeSet = nu
 
 export async function resolveAssetList(value, source = "data", bucket = null, recursive = false, options = {}) {
   if (!value) return [];
-  if (Array.isArray(value)) return unique(value.filter(isImagePath));
+  if (Array.isArray(value)) return unique(value.map(path => typeof path === "string" ? normalizeFoundryPath(path) : "").filter(isImagePath));
   if (typeof value !== "string") return [];
 
   const target = normalizeFoundryPath(value.trim());
@@ -303,24 +306,30 @@ export async function resolveAssetList(value, source = "data", bucket = null, re
 }
 
 export async function getArtSubsetOptions(artSetKey, context = {}, browseOptions = {}) {
-  const baseSet = getArtSets()[artSetKey];
-  if (!baseSet) return [{ key: "general", label: "Общие", folder: "" }];
+  const artSets = getArtSets();
+  const baseSet = artSets[resolveSetKey(artSets, artSetKey)];
+  const label = game.i18n.localize("FBL_CF.Forge.GeneralSubset");
+  if (!baseSet) return [{ key: "general", label, folder: "" }];
 
   const resolved = resolveArtSetForContext(baseSet, { ...context, artSubsetKey: "general" });
   const set = resolved.set;
   const source = set.source || "data";
   const bucket = set.bucket || null;
-  const baseFolder = normalizeFoundryPath(set.folder || set.portraitFolder || set.tokenFolder || "");
-  const options = [{ key: "general", label: "Общие", folder: baseFolder }];
-  if (!baseFolder) return options;
+  const { shared, portrait, token } = getArtSources(set);
+  const roots = unique([folderSource(shared || portrait), folderSource(token)]);
+  const [baseFolder = ""] = roots;
+  const options = [{ key: "general", label, folder: baseFolder }];
+  if (!baseFolder || isImagePath(baseFolder)) return options;
 
-  const dirs = await browseDirectories(source, baseFolder, bucket, true, browseOptions);
+  const directories = await Promise.all(roots.map(root => browseDirectories(source, root, bucket, true, browseOptions)));
   const seen = new Set(["general"]);
-  for (const dir of dirs) {
-    const rel = relativeFoundryPath(baseFolder, dir);
-    if (!rel || seen.has(rel)) continue;
-    seen.add(rel);
-    options.push({ key: rel, label: rel, folder: dir });
+  for (const [i, dirs] of directories.entries()) {
+    for (const dir of dirs) {
+      const rel = relativeFoundryPath(roots[i], dir);
+      if (!rel || seen.has(rel)) continue;
+      seen.add(rel);
+      options.push({ key: rel, label: rel, folder: dir });
+    }
   }
 
   return options;
@@ -328,16 +337,16 @@ export async function getArtSubsetOptions(artSetKey, context = {}, browseOptions
 
 export function applyArtSubsetToSet(set, artSubsetKey) {
   const subset = normalizeArtSubsetKey(artSubsetKey);
-  if (!isSpecificArtSubset(subset)) return { set: { ...set, recursive: false }, folder: null };
+  if (!isSpecificArtSubset(subset)) return { set, folder: null };
 
   const next = { ...set, recursive: false };
-  const baseFolder = normalizeFoundryPath(next.folder || next.portraitFolder || next.tokenFolder || "");
+  const { shared, portrait, token } = getArtSources(set);
+  const baseFolder = folderSource(shared || portrait) || folderSource(token);
   const folder = baseFolder ? joinFoundryPath(baseFolder, subset) : null;
 
-  if (next.folder) next.folder = joinFoundryPath(next.folder, subset);
-  if (next.portraitFolder) next.portraitFolder = joinFoundryPath(next.portraitFolder, subset);
-  if (next.tokenFolder) next.tokenFolder = joinFoundryPath(next.tokenFolder, subset);
-  if (!next.folder && !next.portraitFolder && !next.tokenFolder && folder) next.folder = folder;
+  for (const field of ["folder", "portraitFolder", "tokenFolder", "portraitFiles", "tokenFiles", "portraits", "tokens"]) {
+    if (folderSource(next[field])) next[field] = joinFoundryPath(next[field], subset);
+  }
 
   return { set: next, folder };
 }
@@ -345,7 +354,11 @@ export function applyArtSubsetToSet(set, artSubsetKey) {
 export function normalizeArtSubsetKey(value) {
   const raw = normalizeFoundryPath(String(value ?? "").trim());
   if (!raw || raw === "." || raw === "general" || raw === "common" || raw === "root" || raw === "__general__") return "general";
-  return raw.replace(/^\/+|\/+$/g, "");
+  const key = raw.replace(/^\/+|\/+$/g, "");
+  if (key.split("/").some(part => /[\\/]/.test(decodePathPart(part)) || [".", ".."].includes(decodePathPart(part)))) {
+    throw new Error(game.i18n.localize("FBL_CF.Status.InvalidSubset"));
+  }
+  return key || "general";
 }
 
 export function isSpecificArtSubset(value) {
@@ -368,54 +381,82 @@ export function relativeFoundryPath(base, full) {
   return cleanFull.slice(cleanBase.length + 1);
 }
 
-export function updateArtSetInfo(root, artSetKey, inspection = null, context = {}) {
-  const target = root.querySelector("[data-artset-info]");
-  if (!target) return;
-  const baseSet = getArtSets()[artSetKey];
-  if (!baseSet) {
-    target.innerHTML = `<strong>Набор не найден:</strong> ${escapeHtml(artSetKey)}`;
-    return;
-  }
-
-  const resolved = inspection?.context || resolveArtSetForContext(baseSet, context);
-  const set = resolved.set;
-  const folder = getArtSetFolderLabel(set);
-  const rules = getTokenRules(set);
-  const registry = shouldUseAssetRegistry(baseSet) ? "включена" : "выключена";
-  const contextLabel = getArtContextLabel(resolved) || "общий набор";
-  const branchNotice = resolved.branchFound ? "" : ' <span class="fbl-cf-warn">Для этой культуры/пола отдельная папка не найдена, используется общий набор.</span>';
-  const checked = inspection
-    ? `<br>Проверка: портретов ${inspection.portraitsTotal}, свободно ${inspection.portraitsAvailable}, токенов ${inspection.tokensTotal}, занятых файлов ${inspection.usedCount}.`
-    : "";
-  const tokenRule = formatTokenRuleHint(rules);
-
-  target.innerHTML = `
-    <div><strong>Контекст:</strong> ${escapeHtml(contextLabel)}.${branchNotice}</div>
-    <div><strong>Папка:</strong> <code>${escapeHtml(folder)}</code></div>
-    <div><strong>Схема:</strong> ${tokenRule} Занятость: ${registry}.${checked}</div>
-  `;
-}
-
 export function getArtSetFolderLabel(set) {
-  return normalizeFoundryPath(set.folder || set.portraitFolder || set.tokenFolder || "не указана");
+  const { shared, portrait, token } = getArtSources(set);
+  return folderSource(shared || portrait) || folderSource(token) || game.i18n.localize("FBL_CF.Diagnostics.NoArtFolder");
 }
 
 export function findPairedToken(portrait, tokenFiles, set) {
-  const rules = getTokenRules(set);
-  const pBase = pairBase(portrait, rules);
-  return tokenFiles.find(t => getTokenBaseCandidates(assetStem(t), rules).some(base => normalizeStem(base) === pBase)) || null;
+  return indexPairedTokens({ portraitFiles: [portrait], tokenFiles }, { ...set, pairByName: true }).get(portrait)?.[0] ?? null;
 }
 
-export function pairBase(path, rulesOrSuffixes = null) {
-  const rules = normalizeTokenRules(rulesOrSuffixes);
-  const stem = assetStem(path).replace(/[-_\s]*(portrait|actor|avatar)$/i, "");
-  const bases = getTokenBaseCandidates(stem, rules);
-  const best = bases.find(base => normalizeStem(base) !== normalizeStem(stem)) || stem;
-  return normalizeStem(best);
+function indexPairedTokens({ portraitFiles, tokenFiles }, set) {
+  const pairs = new Map();
+  if (!set.pairByName || !portraitFiles.length || !tokenFiles.length) return pairs;
+  const rules = getTokenRules(set);
+  const { shared, portrait, token } = getArtSources(set);
+  const portraitRoot = folderSource(portrait);
+  const tokenRoot = folderSource(token);
+  const allowUnambiguousPair = !shared && !set.sameFolderTokenSuffix && !(portraitRoot && tokenRoot);
+  const tokensByKey = new Map();
+  const tokensByStem = new Map();
+  const portraitsByStem = new Map();
+  const append = (index, key, file) => {
+    if (!index.has(key)) index.set(key, []);
+    index.get(key).push(file);
+  };
+  for (const file of tokenFiles) {
+    const directory = pairingDirectory(file, shared ? null : tokenRoot);
+    for (const base of new Set(getTokenBaseCandidates(assetStem(file), rules).map(normalizeStem))) {
+      append(tokensByKey, JSON.stringify([directory, base]), file);
+      if (allowUnambiguousPair) append(tokensByStem, base, file);
+    }
+  }
+  if (allowUnambiguousPair) {
+    for (const file of portraitFiles) {
+      for (const base of portraitStems(file)) append(portraitsByStem, base, file);
+    }
+  }
+  for (const file of portraitFiles) {
+    const directory = pairingDirectory(file, shared ? null : portraitRoot);
+    const bases = portraitStems(file);
+    const matches = unique(bases.flatMap(base => tokensByKey.get(JSON.stringify([directory, base])) || []));
+    // Lists may point to separate roots without naming either root. Only an unambiguous match is safe there.
+    const unambiguous = unique(bases.filter(base => portraitsByStem.get(base)?.length === 1)
+      .flatMap(base => tokensByStem.get(base) || []));
+    if (matches?.length) pairs.set(file, matches);
+    else if (unambiguous.length === 1) pairs.set(file, unambiguous);
+  }
+  return pairs;
+}
+
+function portraitStems(file) {
+  return unique([normalizeStem(assetStem(file)), pairBase(file)]);
+}
+
+function folderSource(value) {
+  return typeof value === "string" && !isImagePath(value) ? normalizeFoundryPath(value) : "";
+}
+
+function assetDirectory(path) {
+  const clean = normalizeFoundryPath(String(path).split(/[?#]/, 1)[0]);
+  return clean.slice(0, Math.max(0, clean.lastIndexOf("/"))).split("/").map(decodePathPart).join("/");
+}
+
+function pairingDirectory(file, root) {
+  const dir = assetDirectory(file);
+  if (!root) return dir;
+  const decodedRoot = root.split("/").map(decodePathPart).join("/");
+  return dir === decodedRoot ? "" : relativeFoundryPath(decodedRoot, dir) || dir;
+}
+
+export function pairBase(path) {
+  return normalizeStem(assetStem(path).replace(/[-_\s]+(?:portrait|actor|avatar)$/i, ""));
 }
 
 export function assetStem(path) {
-  const rawFile = String(path).split("/").pop() || String(path);
+  const clean = normalizeFoundryPath(String(path).split(/[?#]/, 1)[0]);
+  const rawFile = clean.split("/").pop() || clean;
   const file = decodePathPart(rawFile);
   return normalizeVisibleSpaces(file.replace(/\.[^.]+$/, ""));
 }
@@ -446,7 +487,7 @@ export function normalizeTokenRules(rulesOrSuffixes = null, maybeSet = null) {
   if (rulesOrSuffixes && typeof rulesOrSuffixes === "object" && !Array.isArray(rulesOrSuffixes) && (rulesOrSuffixes.suffixes || rulesOrSuffixes.patterns)) {
     return {
       suffixes: unique((rulesOrSuffixes.suffixes || []).map(String).filter(Boolean)),
-      patterns: unique((rulesOrSuffixes.patterns || []).map(String).filter(pattern => pattern.includes("{id}")))
+      patterns: unique(splitTokenNamePatterns(rulesOrSuffixes.patterns))
     };
   }
 
@@ -458,8 +499,10 @@ export function normalizeTokenRules(rulesOrSuffixes = null, maybeSet = null) {
 export function getTokenBaseCandidates(stem, rules) {
   const cleanStem = String(stem || "");
   const candidates = new Set();
-  const suffixBase = stripTokenSuffix(cleanStem, rules.suffixes || []);
-  if (normalizeStem(suffixBase) !== normalizeStem(cleanStem)) candidates.add(suffixBase);
+  for (const suffix of rules.suffixes || []) {
+    const suffixBase = stripTokenSuffix(cleanStem, [suffix]);
+    if (normalizeStem(suffixBase) !== normalizeStem(cleanStem)) candidates.add(suffixBase);
+  }
 
   for (const pattern of rules.patterns || []) {
     const match = matchTokenPattern(cleanStem, pattern);
@@ -472,12 +515,11 @@ export function getTokenBaseCandidates(stem, rules) {
 
 export function matchTokenPattern(stem, pattern) {
   const source = normalizeVisibleSpaces(decodePathPart(String(pattern || "").trim()));
-  if (!source.includes("{id}")) return null;
+  const pieces = source.split("{id}");
+  if (pieces.length !== 2) return null;
 
   const cleanStem = normalizeVisibleSpaces(decodePathPart(String(stem || "")));
-  const marker = "__FBL_CF_ID__";
-  const escaped = escapeRegExp(source).replace(escapeRegExp("{id}"), marker);
-  const patternRegex = `^${escaped.replace(marker, "(.+?)")}$`;
+  const patternRegex = "^" + pieces.map(escapeRegExp).join("(.+?)") + "$";
   const match = new RegExp(patternRegex, "i").exec(cleanStem);
   return normalizeVisibleSpaces(match?.[1] || "") || null;
 }
@@ -506,18 +548,6 @@ export function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function formatTokenRuleHint(rules) {
-  const suffixText = rules.suffixes?.length
-    ? `суффиксы: ${rules.suffixes.map(s => `<code>${escapeHtml(s)}</code>`).join(", ")}`
-    : "";
-  const patterns = rules.patterns || [];
-  const patternText = patterns.length
-    ? `шаблоны: ${patterns.slice(0, 8).map(s => `<code>${escapeHtml(s)}</code>`).join(", ")}${patterns.length > 8 ? ` и ещё ${patterns.length - 8}` : ""}`
-    : "";
-  const parts = [suffixText, patternText].filter(Boolean);
-  return parts.length ? `Токены распознаются по имени (${parts.join("; ")}).` : "Токены берутся из отдельного списка или папки.";
-}
-
 export function samePath(a, b) {
   if (!a || !b) return false;
   return normalizeFoundryPath(a) === normalizeFoundryPath(b);
@@ -527,18 +557,34 @@ export function validateArtSet(set, key = "") {
   const errors = [];
   const warnings = [];
   if (!set || typeof set !== "object" || Array.isArray(set)) {
-    errors.push("Набор должен быть JSON-объектом.");
+    errors.push(game.i18n.localize("FBL_CF.Manager.InvalidObject"));
     return { key, valid: false, errors, warnings };
   }
 
-  const hasDirectSource = !!(set.folder || set.portraitFolder || set.tokenFolder || set.portraitFiles || set.tokenFiles || set.portraits || set.tokens);
-  const hasBranches = !!(set.folders || set.cultures || set.byCulture || set.byGender || set.byGenderCulture);
-  if (!hasDirectSource && !hasBranches) errors.push("Не указан folder, portraitFolder/tokenFolder, список файлов или ветвящаяся структура folders.");
-  if (set.pairByName && !set.sameFolderTokenSuffix && !set.tokenFolder && !set.tokenFiles && !set.tokens && !hasBranches) {
-    warnings.push("pairByName включён, но отдельный источник токенов не указан.");
+  const directFields = ["folder", "portraitFolder", "tokenFolder", "portraitFiles", "tokenFiles", "portraits", "tokens"];
+  const branchFields = ["folders", "cultures", "byCulture", "byGender", "byGenderCulture", "male", "female", "neutral", "default"];
+  const validSource = value => typeof value === "string" ? Boolean(value.trim())
+    : Array.isArray(value) && value.length > 0 && value.every(path => typeof path === "string" && isImagePath(path.trim()));
+  const hasBranch = value => validSource(value) || (value && typeof value === "object" && !Array.isArray(value)
+    && (isArtBranchConfig(value) ? validateSources(value, directFields).length === 0 : Object.values(value).some(hasBranch)));
+  errors.push(...validateSources(set, directFields));
+  const hasDirectSource = directFields.some(field => validSource(set[field]));
+  const hasBranches = branchFields.some(field => hasBranch(set[field]));
+  if (!hasDirectSource && !hasBranches) errors.push(game.i18n.localize("FBL_CF.Manager.MissingArtSource"));
+  if (set.pairByName && !getArtSources(set).shared && !getArtSources(set).token && !hasBranches) {
+    warnings.push(game.i18n.localize("FBL_CF.Manager.MissingTokenSource"));
   }
-  if (set.source && !["data", "public", "s3"].includes(set.source)) warnings.push(`Необычный FilePicker source: ${set.source}.`);
+  if (set.source && !["data", "public", "s3"].includes(set.source)) warnings.push(game.i18n.format("FBL_CF.Manager.UnknownFileSource", { source: set.source }));
   return { key, valid: !errors.length, errors, warnings };
+}
+
+function validateSources(set, fields) {
+  return fields.filter(field => {
+    const value = set[field];
+    if (value == null || value === "") return false;
+    if (field === "folder" || field.endsWith("Folder")) return typeof value !== "string";
+    return !(typeof value === "string" || Array.isArray(value) && value.every(path => typeof path === "string" && isImagePath(path.trim())));
+  }).map(field => game.i18n.format("FBL_CF.Manager.InvalidArtSource", { field }));
 }
 
 export function validateArtSets(artSets = getArtSets()) {

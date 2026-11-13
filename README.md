@@ -1,4 +1,4 @@
-# Forbidden Lands Character Forge 2.0
+# Forbidden Lands Character Forge
 
 Модуль для Foundry VTT 13.351 и Forbidden Lands 13.0.5. Создаёт случайных NPC с именами культур Воздушных Островов, назначает портреты и prototype tokens, следит за повторами изображений и умеет давать разные имена размещённым wildcard-токенам одного Actor.
 
@@ -96,18 +96,16 @@ token-{id}
 {id}-token
 ```
 
+При рекурсивном обходе пара ищется в той же папке. Для отдельных папок портретов и токенов учитывается относительная подпапка. Если подходящего токена нет, используется портрет. Если набор содержит только токены, выбранное изображение используется в обеих ролях.
+
 ## Реестр занятых изображений
 
 При успешном создании Actor назначенные portrait и token записываются в скрытый world registry. Модуль не переименовывает и не удаляет файлы на диске.
 
-В версии 2.0:
-
-- выбор и запись проходят через последовательную очередь;
-- один файл может хранить роли `portrait` и `token` одновременно;
-- удаление Actor освобождает его записи;
-- ручная смена изображений освобождает старые пути и регистрирует новые в известном арт-наборе;
-- диагностика удаляет записи-сироты;
-- занятость можно сбросить отдельно для выбранного набора.
+- Активный ГМ последовательно обрабатывает выбор изображений и изменения реестра, включая запросы от других ГМ.
+- Один файл может иметь несколько владельцев и использоваться в обеих ролях. Удаление актёра или смена изображения освобождает его запись. Файл остаётся занятым, пока его использует другой зарегистрированный актёр.
+- При `markUsed: false` изображения актёра остаются вне реестра и после ручной смены арта.
+- Диагностика удаляет записи удалённых актёров. Занятость можно сбросить отдельно для выбранного набора.
 
 ## Кеш папок
 
@@ -128,7 +126,7 @@ token-{id}
 - редактор шаблонов имён токенов;
 - диагностика.
 
-Редакторы имён и артов сохраняют JSON как внутренний формат, но работают с одним набором за раз, валидируют структуру до сохранения, позволяют импортировать и экспортировать JSON, переименовать ключ и вернуть стандартный набор.
+Редакторы имён и артов проверяют структуру перед сохранением, поддерживают импорт и экспорт JSON и восстановление стандартного набора. При переименовании прежний ключ сохраняется как псевдоним, чтобы настройки, токены и записи реестра продолжали ссылаться на тот же набор.
 
 ## Пакетное создание
 
@@ -162,7 +160,7 @@ await game.fblCharacterForge.createActor({
 });
 ```
 
-Результат создаётся в world Actors. Прямая запись в Compendium pack в 2.0 не включена.
+По умолчанию результат создаётся в каталоге актёров мира. При клонировании заполненные характеристики, навыки, подтип и BIO шаблона сохраняются. Для замены сгенерированными значениями укажи `profileOverwrite: true`.
 
 ## Случайные имена wildcard-токенов
 
@@ -233,6 +231,7 @@ await forge.createActor({
   artSetKey,
   art,
   artError,
+  profile,
   warnings
 }
 ```
@@ -269,4 +268,4 @@ For `character` Actors, Character Forge can generate a Forbidden Lands NPC profi
 
 The profession and `BIO → Notes` text are always generated in Russian, regardless of the Foundry interface language. BIO includes a voice, character, two habits, two small details, and a reaction under pressure. The tables contain 272 unique entries and full recent BIO repeats are suppressed within the current session.
 
-The feature is enabled by default and can be disabled globally or per Actor in the forge. Existing non-zero data from a Compendium template is preserved unless API callers explicitly request profile overwrite.
+The feature is enabled by default and can be disabled globally or per Actor in the Forge. New generated profiles use the Forbidden Lands NPC subtype unless a subtype is supplied. The attribute and skill budgets are presets for NPC generation.
