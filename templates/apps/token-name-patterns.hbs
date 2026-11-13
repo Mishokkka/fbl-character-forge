@@ -1,0 +1,21 @@
+<div class="fbl-cf-token-patterns">
+  <header class="fbl-cf-panel-header">
+    <div><h2>{{localize "FBL_CF.TokenPatterns.Title"}}</h2><p>{{localize "FBL_CF.TokenPatterns.Hint"}}</p></div>
+  </header>
+  {{#if status}}<div class="fbl-cf-status fbl-cf-status--success">{{status}}</div>{{/if}}
+  <div class="fbl-cf-two-columns">
+    <div class="fbl-cf-metric"><strong>{{count}}</strong><span>{{localize "FBL_CF.TokenPatterns.Valid"}}</span></div>
+    <div class="fbl-cf-metric"><strong>{{invalidCount}}</strong><span>{{localize "FBL_CF.TokenPatterns.Invalid"}}</span></div>
+  </div>
+  <textarea name="patterns" spellcheck="false">{{value}}</textarea>
+  <p class="hint">{{localize "FBL_CF.TokenPatterns.PlaceholderHint"}}</p>
+  <div class="fbl-cf-suggestions">{{#each examples}}<span class="fbl-cf-chip">{{this}}</span>{{/each}}</div>
+  <footer class="fbl-cf-forge__footer">
+    <button type="button" data-action="close">{{localize "FBL_CF.Common.Cancel"}}</button>
+    <div class="fbl-cf-footer-actions">
+      <button type="button" data-action="reset"><i class="fas fa-trash-arrow-up"></i> {{localize "FBL_CF.Manager.ResetAll"}}</button>
+      <button type="button" data-action="restore"><i class="fas fa-plus"></i> {{localize "FBL_CF.TokenPatterns.AddDefaults"}}</button>
+      <button type="button" data-action="save"><i class="fas fa-floppy-disk"></i> {{localize "FBL_CF.Common.Save"}}</button>
+    </div>
+  </footer>
+</div>

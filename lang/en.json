@@ -1,0 +1,254 @@
+{
+  "FBL_CF": {
+    "Common": {
+      "Cancel": "Close",
+      "Save": "Save",
+      "RootFolder": "No folder"
+    },
+    "Gender": {
+      "Random": "Random",
+      "Male": "Male",
+      "Female": "Female",
+      "Neutral": "Neutral"
+    },
+    "Forge": {
+      "Title": "Character Forge",
+      "Heading": "Random Character Forge",
+      "Subheading": "Prepare a name, portrait, and token before creating the Actor. Each part can be rerolled separately.",
+      "Identity": "Character",
+      "ActorName": "Name",
+      "GenerateName": "Generate name",
+      "SuggestNames": "Show alternatives",
+      "Culture": "Name culture",
+      "Gender": "Gender",
+      "ActorType": "Actor type",
+      "Folder": "Actors folder",
+      "Art": "Art and token",
+      "ArtSet": "Art set",
+      "Subset": "Subset",
+      "GeneralSubset": "General",
+      "AssignArt": "Assign selected images to Actor and prototype token",
+      "Portrait": "Portrait",
+      "Token": "Token",
+      "RollArt": "Roll art",
+      "RefreshIndex": "Clear cache and rescan folders",
+      "ResetUsed": "Reset usage for selected set",
+      "ArtCharacterOnly": "Art generation only applies to character Actors.",
+      "Batch": "Batch creation",
+      "BatchCount": "Count",
+      "BatchHint": "Each Actor receives a separate name and, when enabled, a separate available image pair.",
+      "CreateBatch": "Create batch",
+      "History": "Recent creations",
+      "HistoryEmpty": "History is empty.",
+      "Create": "Create",
+      "CreateOpen": "Create and open",
+      "CreateContinue": "Create and continue",
+      "RandomCulture": "Random culture",
+      "ResetUsedConfirm": "Release all images in the selected art set?",
+      "UseArt": "Assign art",
+      "ClearArt": "Clear selected art",
+      "InspectArt": "Inspect selected set",
+      "ClearHistory": "Clear history"
+    },
+    "Status": {
+      "Working": "Working…",
+      "ArtRolled": "Art selected.",
+      "ArtInspected": "Art set inspection complete.",
+      "RegistryReset": "Selected set usage was reset.",
+      "ActorCreated": "Actor created: ",
+      "ReadyNext": "Actor created. The next draft is ready.",
+      "BatchProgress": "Creating",
+      "BatchDone": "Actors created",
+      "Errors": "errors"
+    },
+    "Diagnostics": {
+      "Title": "Character Forge Diagnostics",
+      "Hint": "Configuration, cache, and used-asset registry checks.",
+      "Module": "Module version",
+      "System": "System",
+      "NameSets": "Name sets / invalid",
+      "ArtSets": "Art sets / invalid",
+      "Registry": "Registry files / orphaned",
+      "Cache": "Cache entries / TTL",
+      "Portraits": "Available portraits",
+      "Tokens": "Tokens",
+      "Used": "Used files",
+      "ClearCache": "Clear folder cache",
+      "CleanRegistry": "Remove orphaned entries",
+      "NameProblems": "Name set problems",
+      "ArtProblems": "Art set problems",
+      "NoProblems": "No problems found."
+    },
+    "Manager": {
+      "NamesTitle": "Name Set Manager",
+      "NamesHint": "Edit and validate each culture separately while retaining full JSON compatibility.",
+      "ArtTitle": "Art Set Manager",
+      "ArtHint": "Edit paths, pairing rules, and culture/gender branches with validation before save.",
+      "Saved": "Changes saved.",
+      "Errors": "Errors",
+      "Warnings": "Warnings",
+      "Valid": "Structure is valid.",
+      "Format": "Format",
+      "Reset": "Restore default",
+      "ResetAll": "Reset all",
+      "Delete": "Delete",
+      "DeleteConfirm": "Delete set {key}?",
+      "NoDefault": "This custom set has no default version.",
+      "Empty": "No sets exist. Use + to create one.",
+      "Add": "Add set",
+      "Import": "Import JSON",
+      "Export": "Export JSON",
+      "Key": "Set key",
+      "Rename": "Rename key",
+      "InvalidKey": "The key may only contain Latin letters, digits, hyphens, and underscores.",
+      "KeyExists": "A set with this key already exists.",
+      "ImportInvalid": "The file does not contain a compatible set or set collection.",
+      "Imported": "Imported sets"
+    },
+    "TokenPatterns": {
+      "Title": "Token Filename Patterns",
+      "Hint": "Each line describes a token filename paired to a portrait. {id} is replaced by the portrait filename without extension.",
+      "Valid": "valid patterns",
+      "Invalid": "lines without {id}",
+      "PlaceholderHint": "Examples: {id}T, t{id}, token-{id}, processed-{id}.",
+      "AddDefaults": "Add missing defaults",
+      "Empty": "At least one pattern containing {id} is required.",
+      "InvalidSave": "Fix lines without {id}: {count}.",
+      "SaveFailed": "Could not save patterns."
+    },
+    "TokenNames": {
+      "Label": "Random placed-token name",
+      "None": "None",
+      "Random": "Random culture",
+      "Hint": "Works with wildcard tokens. Only the placed Token name changes; the Actor name remains unchanged.",
+      "Preview": "Preview generated name",
+      "NoPreview": "Could not generate a name for this mode.",
+      "HudHint": "Click: new name. Alt: random culture. Ctrl: restore Actor name.",
+      "Rerolled": "New token name",
+      "Restored": "Actor name restored",
+      "Error": "Could not change token name."
+    },
+    "Settings": {
+      "Open": "Open",
+      "NameSets": {
+        "Name": "Name sets",
+        "Hint": "Hidden storage for custom name sets."
+      },
+      "ArtSets": {
+        "Name": "Art sets",
+        "Hint": "Hidden storage for art-set configuration."
+      },
+      "NameSetManager": {
+        "Name": "Name Set Manager",
+        "Hint": "Create, validate, and edit culture sets."
+      },
+      "ArtSetManager": {
+        "Name": "Art Set Manager",
+        "Hint": "Configure folders, culture/gender branches, and token pairing."
+      },
+      "Diagnostics": {
+        "Name": "Character Forge Diagnostics",
+        "Hint": "Check settings, cache, and the used-asset registry."
+      },
+      "TokenPatterns": {
+        "Name": "Token filename patterns",
+        "Hint": "Rules used to pair portraits and tokens by filename."
+      },
+      "DefaultNameSet": {
+        "Name": "Default name culture",
+        "Hint": "Set key selected when the forge first opens."
+      },
+      "DefaultArtSet": {
+        "Name": "Default art set",
+        "Hint": "Art-set key selected when the forge first opens."
+      },
+      "ReplaceCreateDialog": {
+        "Name": "Replace core Actor creation",
+        "Hint": "Open Character Forge instead of the core dialog when character is available. Requires reload."
+      },
+      "AutoGenerateName": {
+        "Name": "Generate a name on open",
+        "Hint": "Prepare a name when the forge opens."
+      },
+      "AutoRollArt": {
+        "Name": "Roll art on open",
+        "Hint": "Scan the selected set and prepare images when the forge opens."
+      },
+      "AssignArt": {
+        "Name": "Assign art by default",
+        "Hint": "Enable portrait and prototype-token assignment in the forge."
+      },
+      "MarkUsed": {
+        "Name": "Avoid used images",
+        "Hint": "Record images actually assigned to Actors in the world registry."
+      },
+      "Reuse": {
+        "Name": "Reuse after exhaustion",
+        "Hint": "Permit reuse only after the available pool is exhausted."
+      },
+      "ReleaseOnDelete": {
+        "Name": "Release art when Actor is deleted",
+        "Hint": "Remove associated registry entries when an Actor is deleted."
+      },
+      "Recursive": {
+        "Name": "Scan folders recursively",
+        "Hint": "Search subfolders when an art set does not override this value."
+      },
+      "CacheTtl": {
+        "Name": "Folder cache TTL, minutes",
+        "Hint": "How long FilePicker.browse results are cached. 0 keeps them until manual clear or reload."
+      },
+      "TokenHud": {
+        "Name": "Token HUD name button",
+        "Hint": "Show the d20 only for tokens with random naming enabled."
+      },
+      "TokenFallback": {
+        "Name": "Culture for Random mode",
+        "Hint": "A specific culture key or random for a true random choice."
+      },
+      "BatchCount": {
+        "Name": "Default batch size",
+        "Hint": "Initial Actor count in the batch panel."
+      },
+      "HistoryLimit": {
+        "Name": "Local history size",
+        "Hint": "Recent created Actors retained for this client. 0 disables history."
+      },
+      "LastNameSet": "Last name set",
+      "GenerationHistory": "Generation history",
+      "UsedAssets": "Used asset registry",
+      "SchemaVersion": "Settings schema version",
+      "GenerateProfile": {
+        "Name": "Automatically generate NPC profiles",
+        "Hint": "By default, fill 14 total attribute points, skills, profession, and a Russian-language BIO for created characters."
+      },
+      "LastProfileRole": "Last profile archetype",
+      "LastProfileTier": "Last profile competence tier"
+    },
+    "Profile": {
+      "Generate": "Stats, skills, and BIO",
+      "Hint": "Create 14 total attribute points, tier-based skills, a profession, and a detailed Russian-language roleplaying BIO.",
+      "Role": "Archetype",
+      "Tier": "Competence",
+      "Roles": {
+        "Random": "Random",
+        "Warrior": "Fighter",
+        "Marksman": "Marksman",
+        "Scout": "Scout",
+        "Rogue": "Rogue",
+        "Scholar": "Scholar",
+        "Healer": "Healer",
+        "Face": "Negotiator",
+        "Craftsperson": "Craftsperson",
+        "Laborer": "Laborer",
+        "Handler": "Animal handler"
+      },
+      "Tiers": {
+        "Random": "Random",
+        "Ordinary": "Ordinary",
+        "Capable": "Capable",
+        "Veteran": "Veteran"
+      }
+    }
+  }
+}
