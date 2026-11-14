@@ -1,0 +1,38 @@
+<div class="fbl-cf-diagnostics">
+  <header class="fbl-cf-panel-header">
+    <div><h2>{{localize "FBL_CF.Diagnostics.Title"}}</h2><p>{{localize "FBL_CF.Diagnostics.Hint"}}</p></div>
+    <div class="fbl-cf-toolbar">
+      <button type="button" data-action="refresh" aria-label="{{localize 'FBL_CF.Diagnostics.Refresh'}}"><i class="fas fa-rotate"></i></button>
+      <button type="button" data-action="copy-report" aria-label="{{localize 'FBL_CF.Diagnostics.CopyReport'}}"><i class="fas fa-copy"></i></button>
+    </div>
+  </header>
+
+  <dl class="fbl-cf-metrics fbl-cf-metrics--large">
+    <div><dt>{{localize "FBL_CF.Diagnostics.Module"}}</dt><dd>{{moduleVersion}}</dd></div>
+    <div><dt>Foundry</dt><dd>{{foundryVersion}}</dd></div>
+    <div><dt>{{localize "FBL_CF.Diagnostics.System"}}</dt><dd>{{system}}</dd></div>
+    <div><dt>{{localize "FBL_CF.Diagnostics.NameSets"}}</dt><dd>{{nameSets}} / {{invalidNameSets}}</dd></div>
+    <div><dt>{{localize "FBL_CF.Diagnostics.ArtSets"}}</dt><dd>{{artSets}} / {{invalidArtSets}}</dd></div>
+    <div><dt>{{localize "FBL_CF.Diagnostics.Registry"}}</dt><dd>{{registry.total}} ({{registry.orphaned}})</dd></div>
+    <div><dt>{{localize "FBL_CF.Diagnostics.Cache"}}</dt><dd>{{cache.entries}} / {{cache.ttlMinutes}} min</dd></div>
+  </dl>
+
+  <div class="fbl-cf-diagnostics__actions">
+    <button type="button" data-action="clear-cache"><i class="fas fa-broom"></i> {{localize "FBL_CF.Diagnostics.ClearCache"}}</button>
+    <button type="button" data-action="clean-registry"><i class="fas fa-recycle"></i> {{localize "FBL_CF.Diagnostics.CleanRegistry"}}</button>
+  </div>
+
+  <section class="fbl-cf-card">
+    <h3>{{localize "FBL_CF.Diagnostics.NameProblems"}}</h3>
+    {{#if nameProblems.length}}
+      <ul class="fbl-cf-problem-list">{{#each nameProblems}}<li><strong>{{key}}</strong>: {{message}}</li>{{/each}}</ul>
+    {{else}}<p class="fbl-cf-ok"><i class="fas fa-check"></i> {{localize "FBL_CF.Diagnostics.NoProblems"}}</p>{{/if}}
+  </section>
+
+  <section class="fbl-cf-card">
+    <h3>{{localize "FBL_CF.Diagnostics.ArtProblems"}}</h3>
+    {{#if artProblems.length}}
+      <ul class="fbl-cf-problem-list">{{#each artProblems}}<li><strong>{{key}}</strong>: {{message}}</li>{{/each}}</ul>
+    {{else}}<p class="fbl-cf-ok"><i class="fas fa-check"></i> {{localize "FBL_CF.Diagnostics.NoProblems"}}</p>{{/if}}
+  </section>
+</div>

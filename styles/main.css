@@ -1,0 +1,692 @@
+/* Forbidden Lands Character Forge 2.1.0 */
+
+.fbl-cf-app {
+  --fbl-cf-gap: 0.65rem;
+  --fbl-cf-border: var(--color-border-light-tertiary, rgb(120 105 84 / 55%));
+  --fbl-cf-border-strong: var(--color-border-light-primary, rgb(120 105 84 / 80%));
+  --fbl-cf-panel: rgb(0 0 0 / 3.5%);
+  --fbl-cf-panel-strong: rgb(0 0 0 / 7%);
+  --fbl-cf-muted: var(--color-text-dark-secondary, currentColor);
+  --fbl-cf-accent: var(--color-border-highlight, #9f7b49);
+  min-width: 0;
+}
+
+.application.fbl-cf-app .window-content {
+  padding: 0;
+  overflow: auto;
+}
+
+.fbl-cf-app button,
+.fbl-cf-app input,
+.fbl-cf-app select,
+.fbl-cf-app textarea {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.fbl-cf-app input,
+.fbl-cf-app select {
+  min-height: 30px;
+}
+
+.fbl-cf-forge,
+.fbl-cf-diagnostics,
+.fbl-cf-manager,
+.fbl-cf-token-patterns {
+  min-height: 0;
+  padding: 0.7rem 0.8rem;
+  box-sizing: border-box;
+}
+
+/* Main forge */
+.fbl-cf-forge {
+  display: grid;
+  align-content: start;
+  gap: var(--fbl-cf-gap);
+}
+
+.fbl-cf-forge__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--fbl-cf-gap);
+}
+
+.fbl-cf-panel {
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--fbl-cf-border);
+  border-radius: 5px;
+  background: var(--fbl-cf-panel);
+}
+
+.fbl-cf-panel.is-disabled {
+  opacity: 0.62;
+}
+
+.fbl-cf-section-title,
+.fbl-cf-panel-header,
+.fbl-cf-card__title-row,
+.fbl-cf-forge__footer,
+.fbl-cf-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fbl-cf-gap);
+}
+
+.fbl-cf-section-title {
+  min-height: 30px;
+  margin: -0.1rem 0 0.55rem;
+  padding-bottom: 0.38rem;
+  border-bottom: 1px solid var(--fbl-cf-border);
+}
+
+.fbl-cf-section-title h2,
+.fbl-cf-panel-header h2,
+.fbl-cf-card h3 {
+  margin: 0;
+}
+
+.fbl-cf-section-title h2 {
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.fbl-cf-section-title h2 i {
+  width: 1.15rem;
+  text-align: center;
+}
+
+.fbl-cf-panel-header p {
+  margin: 0.2rem 0 0;
+  color: var(--fbl-cf-muted);
+}
+
+.fbl-cf-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  min-width: 30px !important;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  flex: 0 0 30px;
+}
+
+.fbl-cf-name-field {
+  margin-bottom: 0.45rem;
+}
+
+.fbl-cf-name-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  gap: 0.3rem;
+}
+
+.fbl-cf-field-grid,
+.fbl-cf-two-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem 0.55rem;
+}
+
+.fbl-cf-field-grid .form-group,
+.fbl-cf-two-columns .form-group {
+  margin: 0;
+}
+
+.fbl-cf-context {
+  margin: 0.2rem 0 0;
+}
+
+.fbl-cf-compact-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 48%;
+  font-size: 0.8rem;
+  line-height: 1.15;
+  cursor: pointer;
+}
+
+.fbl-cf-compact-check input {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.fbl-cf-suggestions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.fbl-cf-chip {
+  width: auto;
+  min-height: 25px;
+  padding: 0.16rem 0.48rem;
+  border: 1px solid var(--fbl-cf-border);
+  border-radius: 999px;
+  background: var(--fbl-cf-panel-strong);
+  line-height: 1.15;
+}
+
+.fbl-cf-art-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 126px;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+}
+
+.fbl-cf-previews {
+  display: flex;
+  align-items: end;
+  justify-content: space-evenly;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.fbl-cf-previews figure {
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.fbl-cf-preview-frame {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--fbl-cf-border-strong);
+  border-radius: 5px;
+  background: rgb(0 0 0 / 10%);
+}
+
+.fbl-cf-preview-frame--portrait {
+  width: 82px;
+  height: 102px;
+}
+
+.fbl-cf-preview-frame--token {
+  width: 92px;
+  height: 92px;
+}
+
+.fbl-cf-preview-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fbl-cf-previews figcaption {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--fbl-cf-muted);
+  font-size: 0.76rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fbl-cf-art-actions {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.fbl-cf-roll-art {
+  width: 100%;
+  min-height: 32px;
+}
+
+.fbl-cf-icon-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 30px);
+  justify-content: space-between;
+  gap: 0.2rem;
+}
+
+.fbl-cf-inspection {
+  margin-top: 0.55rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--fbl-cf-border);
+}
+
+.fbl-cf-inspection .hint {
+  margin: 0.35rem 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fbl-cf-status {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--fbl-cf-border);
+  border-radius: 4px;
+  background: var(--fbl-cf-panel-strong);
+}
+
+.fbl-cf-status--error,
+.fbl-cf-validation.is-invalid {
+  border-color: var(--color-level-error, #c33);
+}
+
+.fbl-cf-status--warning {
+  border-color: var(--color-level-warning, #c88b19);
+}
+
+.fbl-cf-status--success,
+.fbl-cf-validation.is-valid,
+.fbl-cf-ok {
+  border-color: var(--color-level-success, #3b8b55);
+}
+
+.fbl-cf-forge__extras {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--fbl-cf-gap);
+}
+
+.fbl-cf-disclosure {
+  min-width: 0;
+  border: 1px solid var(--fbl-cf-border);
+  border-radius: 5px;
+  background: var(--fbl-cf-panel);
+}
+
+.fbl-cf-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 34px;
+  padding: 0.35rem 0.55rem;
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+  user-select: none;
+}
+
+.fbl-cf-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fbl-cf-disclosure > summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.fbl-cf-disclosure__chevron {
+  font-size: 0.72rem;
+  transition: transform 120ms ease;
+}
+
+.fbl-cf-disclosure[open] .fbl-cf-disclosure__chevron {
+  transform: rotate(180deg);
+}
+
+.fbl-cf-disclosure__body {
+  padding: 0.55rem;
+  border-top: 1px solid var(--fbl-cf-border);
+}
+
+.fbl-cf-disclosure--token {
+  grid-column: 1 / -1;
+}
+
+.fbl-cf-field-grid.fbl-cf-token-dimensions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fbl-cf-batch-row {
+  display: grid;
+  grid-template-columns: 82px auto;
+  align-items: end;
+  gap: 0.45rem;
+}
+
+.fbl-cf-batch-row .form-group {
+  margin: 0;
+}
+
+.fbl-cf-batch-row .hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.fbl-cf-history-head {
+  min-height: 0;
+  margin-bottom: 0.25rem;
+}
+
+.fbl-cf-history {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem;
+  max-height: 132px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.fbl-cf-history li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.28rem;
+  border-radius: 3px;
+  background: var(--fbl-cf-panel-strong);
+}
+
+.fbl-cf-history img {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.fbl-cf-history span {
+  display: grid;
+  min-width: 0;
+}
+
+.fbl-cf-history strong,
+.fbl-cf-history small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fbl-cf-history small {
+  color: var(--fbl-cf-muted);
+  font-size: 0.7rem;
+}
+
+.fbl-cf-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.fbl-cf-metrics--large {
+  margin: 0.8rem 0;
+}
+
+.fbl-cf-metrics > div,
+.fbl-cf-metric {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.38rem;
+  border: 1px solid var(--fbl-cf-border);
+  border-radius: 4px;
+  background: var(--fbl-cf-panel-strong);
+}
+
+.fbl-cf-metrics dt,
+.fbl-cf-metric span {
+  color: var(--fbl-cf-muted);
+  font-size: 0.7rem;
+}
+
+.fbl-cf-metrics dd,
+.fbl-cf-metric strong {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.fbl-cf-forge__footer {
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--fbl-cf-border);
+}
+
+.fbl-cf-footer-actions,
+.fbl-cf-toolbar,
+.fbl-cf-diagnostics__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.fbl-cf-forge__footer button {
+  min-height: 31px;
+}
+
+.fbl-cf-primary {
+  border-color: var(--fbl-cf-accent) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fbl-cf-accent) 45%, transparent) inset;
+  font-weight: 700;
+}
+
+.fbl-cf-forge.is-busy .fbl-cf-forge__main,
+.fbl-cf-forge.is-busy .fbl-cf-forge__extras,
+.fbl-cf-forge.is-busy .fbl-cf-footer-actions {
+  opacity: 0.58;
+}
+
+/* Shared cards and managers */
+.fbl-cf-card {
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--fbl-cf-border);
+  border-radius: 5px;
+  background: var(--fbl-cf-panel);
+}
+
+.fbl-cf-card h3 {
+  margin-bottom: 0.55rem;
+  font-size: 1rem;
+}
+
+.fbl-cf-inline-actions {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 0.3rem;
+}
+
+.fbl-cf-manager__layout {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 0.7rem;
+  min-height: 520px;
+  margin-top: 0.75rem;
+}
+
+.fbl-cf-manager__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow: auto;
+}
+
+.fbl-cf-manager__list button {
+  display: grid;
+  justify-items: start;
+  height: auto;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+}
+
+.fbl-cf-manager__list button.active {
+  outline: 2px solid var(--fbl-cf-accent);
+}
+
+.fbl-cf-manager__list small {
+  color: var(--fbl-cf-muted);
+}
+
+.fbl-cf-manager__editor {
+  display: grid;
+  grid-template-rows: auto minmax(300px, 1fr) auto auto auto;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.fbl-cf-manager__editor textarea,
+.fbl-cf-token-patterns textarea {
+  width: 100%;
+  min-height: 340px;
+  resize: vertical;
+  font-family: var(--font-monospace, monospace);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  tab-size: 2;
+}
+
+.fbl-cf-validation {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--fbl-cf-border);
+  border-radius: 5px;
+}
+
+.fbl-cf-validation p {
+  margin: 0.2rem 0;
+}
+
+.fbl-cf-toolbar .danger {
+  margin-left: auto;
+}
+
+/* Diagnostics */
+.fbl-cf-diagnostics {
+  display: grid;
+  align-content: start;
+  gap: 0.7rem;
+}
+
+.fbl-cf-problem-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.fbl-cf-problem-list li + li {
+  margin-top: 0.35rem;
+}
+
+.fbl-cf-ok {
+  margin: 0;
+  padding: 0.45rem;
+  border: 1px solid;
+  border-radius: 5px;
+}
+
+/* Token integration */
+.fbl-cf-token-random-name-row select {
+  min-width: 190px;
+}
+
+.fbl-cf-token-random-name-row .hint {
+  flex-basis: 100%;
+}
+
+.fbl-cf-hidden {
+  display: none !important;
+}
+
+.fbl-cf-reroll-token-name {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-size, 36px);
+  height: var(--control-size, 36px);
+  margin-top: 4px;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.fbl-cf-reroll-token-name i {
+  line-height: 1;
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .fbl-cf-forge__main,
+  .fbl-cf-manager__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .fbl-cf-manager__list {
+    max-height: 180px;
+  }
+}
+
+@media (max-width: 620px) {
+  .fbl-cf-forge__extras,
+  .fbl-cf-history,
+  .fbl-cf-metrics,
+  .fbl-cf-metrics--large {
+    grid-template-columns: 1fr;
+  }
+
+  .fbl-cf-footer-actions {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 500px) {
+  .fbl-cf-field-grid,
+  .fbl-cf-two-columns,
+  .fbl-cf-forge__footer {
+    grid-template-columns: 1fr;
+  }
+
+  .fbl-cf-forge__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fbl-cf-footer-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Generated Forbidden Lands NPC profile */
+.fbl-cf-profile-row {
+  display: grid;
+  grid-template-columns: minmax(155px, 1.35fr) minmax(0, 1fr) minmax(0, 0.85fr);
+  align-items: end;
+  gap: 0.45rem 0.55rem;
+  margin-top: 0.55rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--fbl-cf-border);
+}
+
+.fbl-cf-profile-row .form-group {
+  margin: 0;
+}
+
+.fbl-cf-profile-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 30px;
+  padding-bottom: 0.1rem;
+  font-size: 0.8rem;
+  line-height: 1.15;
+  cursor: pointer;
+}
+
+.fbl-cf-profile-toggle input {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+@media (max-width: 620px) {
+  .fbl-cf-profile-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .fbl-cf-profile-toggle {
+    grid-column: 1 / -1;
+  }
+}
