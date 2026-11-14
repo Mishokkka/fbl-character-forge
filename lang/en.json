@@ -30,6 +30,13 @@
       "AssignArt": "Assign selected images to Actor and prototype token",
       "Portrait": "Portrait",
       "Token": "Token",
+      "PrototypeToken": "Prototype Token",
+      "TokenActorName": "Use Actor name",
+      "TokenDefault": "Foundry default",
+      "TokenWorldOverrides": "World Prototype Token Overrides control the disabled fields.",
+      "InvalidTokenField": "Select a valid value for {field}.",
+      "InvalidTokenDimension": "{field} must be greater than zero.",
+      "TokenPreferencesFailed": "The Actor was created, but the last token settings could not be saved.",
       "RollArt": "Roll art",
       "RefreshIndex": "Clear cache and rescan folders",
       "ResetUsed": "Reset usage for selected set",
@@ -56,7 +63,8 @@
       "FolderNotCreated": "Foundry did not create the Actor folder.",
       "WorldFolderOnly": "A folder name can be used only when creating a world Actor. Pass a folder ID for a compendium.",
       "NoActiveGM": "The active GM is unavailable. Try again when a GM is connected.",
-      "GMTimeout": "The active GM did not reply. Check the Actor Directory before trying creation again.",
+      "GMTimeout": "Communication with the active GM was lost. Check whether the operation completed before trying again.",
+      "GMQueueExpired": "The request expired in the active GM’s queue before it could start. You can try again.",
       "SheetOpenFailed": "The Actor was created, but its sheet could not be opened.",
       "RegistryWriteFailed": "The Actor was created, but its images could not be recorded in the registry.",
       "ActorNotCreated": "Foundry did not create the Actor.",
@@ -142,6 +150,9 @@
       "InvalidKey": "The key may only contain Latin letters, digits, hyphens, and underscores.",
       "KeyExists": "A set with this key already exists.",
       "ImportInvalid": "The file does not contain a compatible set or set collection.",
+      "ImportAmbiguous": "This file can be imported as one set or as a collection. Replace “{key}” or import the entries as separate sets?",
+      "ImportSingle": "Replace selected set",
+      "ImportCollection": "Import collection",
       "Imported": "Imported sets"
     },
     "TokenPatterns": {
@@ -228,7 +239,7 @@
       },
       "ReleaseOnDelete": {
         "Name": "Release art when Actor is deleted",
-        "Hint": "Remove associated registry entries when an Actor is deleted."
+        "Hint": "Free art from deleted world Actors. A copy in an Actor compendium keeps its own reservation."
       },
       "Recursive": {
         "Name": "Scan folders recursively",

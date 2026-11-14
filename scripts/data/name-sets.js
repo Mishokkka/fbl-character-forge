@@ -20,9 +20,10 @@ export function applyNameSetAdditions(nameSets) {
     for (const [field, values] of Object.entries(additions)) {
       if (!Array.isArray(values)) continue;
       const pool = Array.isArray(nameSets[key][field]) ? nameSets[key][field] : [];
-      const before = pool.length;
-      nameSets[key] = { ...nameSets[key], [field]: unique([...pool, ...values]) };
-      if (nameSets[key][field].length !== before) changed = true;
+      const merged = unique([...pool, ...values]);
+      if (merged.length === pool.length && merged.every((value, index) => value === pool[index])) continue;
+      nameSets[key] = { ...nameSets[key], [field]: merged };
+      changed = true;
     }
   }
   return changed;

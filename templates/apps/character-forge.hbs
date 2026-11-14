@@ -146,6 +146,40 @@
   </div>
 
   <div class="fbl-cf-forge__extras" {{#if busy}}inert{{/if}}>
+    <details class="fbl-cf-disclosure fbl-cf-disclosure--token" data-section="prototypeToken" {{#if expanded.prototypeToken}}open{{/if}}>
+      <summary><span><i class="fas fa-user-circle"></i> {{localize "FBL_CF.Forge.PrototypeToken"}}</span><i class="fas fa-chevron-down fbl-cf-disclosure__chevron"></i></summary>
+      <div class="fbl-cf-disclosure__body">
+        <div class="fbl-cf-field-grid">
+          <div class="form-group stacked">
+            <label for="{{controlId}}-token-name">{{localize "TOKEN.FIELDS.name.label"}}</label>
+            <input id="{{controlId}}-token-name" type="text" name="prototypeToken.name" value="{{state.prototypeToken.name}}" placeholder="{{localize 'FBL_CF.Forge.TokenActorName'}}" autocomplete="off">
+          </div>
+          <div class="form-group stacked" role="group" aria-labelledby="{{controlId}}-token-dimensions">
+            <span id="{{controlId}}-token-dimensions">{{localize "TOKEN.Dimensions"}} ({{localize "GridSpaces"}})</span>
+            <div class="fbl-cf-field-grid fbl-cf-token-dimensions">
+              <input id="{{controlId}}-token-width" type="number" name="prototypeToken.width" min="0" step="any" value="{{state.prototypeToken.width}}" placeholder="{{localize 'DOCUMENT.FIELDS.width.label'}}" aria-label="{{localize 'DOCUMENT.FIELDS.width.label'}}">
+              <input id="{{controlId}}-token-height" type="number" name="prototypeToken.height" min="0" step="any" value="{{state.prototypeToken.height}}" placeholder="{{localize 'DOCUMENT.FIELDS.height.label'}}" aria-label="{{localize 'DOCUMENT.FIELDS.height.label'}}">
+            </div>
+          </div>
+          <div class="form-group stacked">
+            <label for="{{controlId}}-token-display">{{localize "TOKEN.FIELDS.displayName.label"}}</label>
+            <select id="{{controlId}}-token-display" name="prototypeToken.displayName" {{#if tokenDisplay.locked}}disabled aria-describedby="{{controlId}}-token-overrides"{{/if}}>
+              {{#each tokenDisplay.options}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+            </select>
+          </div>
+          <div class="form-group stacked">
+            <label for="{{controlId}}-token-disposition">{{localize "TOKEN.FIELDS.disposition.label"}}</label>
+            <select id="{{controlId}}-token-disposition" name="prototypeToken.disposition" {{#if tokenDisposition.locked}}disabled aria-describedby="{{controlId}}-token-overrides"{{/if}}>
+              {{#each tokenDisposition.options}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+            </select>
+          </div>
+        </div>
+        {{#if hasTokenOverrides}}
+        <p id="{{controlId}}-token-overrides" class="hint">{{localize "FBL_CF.Forge.TokenWorldOverrides"}}</p>
+        {{/if}}
+      </div>
+    </details>
+
     <details class="fbl-cf-disclosure" data-section="batch" {{#if expanded.batch}}open{{/if}}>
       <summary><span><i class="fas fa-layer-group"></i> {{localize "FBL_CF.Forge.Batch"}}</span><i class="fas fa-chevron-down fbl-cf-disclosure__chevron"></i></summary>
       <div class="fbl-cf-disclosure__body fbl-cf-batch-row">

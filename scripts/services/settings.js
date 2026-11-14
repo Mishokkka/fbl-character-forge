@@ -1,6 +1,6 @@
 import { MODULE_ID, SETTINGS_SCHEMA_VERSION } from "../constants.js";
 import { DEFAULT_NAME_SETS, applyNameSetAdditions } from "../data/name-sets.js";
-import { DEFAULT_ART_SETS } from "../data/art-sets.js";
+import { ART_SOURCE_FIELDS, DEFAULT_ART_SETS } from "../data/art-sets.js";
 import { buildDefaultGenderCultureFolders } from "../data/cultures.js";
 import { BASE_NAME_SETS } from "../data/name-sets.base.js";
 import { resolveSetKey } from "../utils.js";
@@ -221,7 +221,7 @@ export function registerSettings(menuTypes = {}) {
     scope: "world",
     config: true,
     type: Boolean,
-    default: true
+    default: false
   });
 
   game.settings.register(MODULE_ID, "recursiveFolders", {
@@ -305,6 +305,13 @@ export function registerSettings(menuTypes = {}) {
     default: "random"
   });
 
+  game.settings.register(MODULE_ID, "lastPrototypeToken", {
+    scope: "client",
+    config: false,
+    type: Object,
+    default: {}
+  });
+
   game.settings.register(MODULE_ID, "generationHistory", {
     name: "FBL_CF.Settings.GenerationHistory",
     scope: "client",
@@ -330,7 +337,7 @@ export function registerSettings(menuTypes = {}) {
   });
 }
 
-export async function migrateSettings({ migrateRegistry }) {
+export async function migrateSettings({ migrateRegistry, recoverArchives }) {
   try {
     const schema = Number(game.settings.get(MODULE_ID, "settingsSchemaVersion")) || 0;
     if (schema >= SETTINGS_SCHEMA_VERSION) return;
@@ -339,6 +346,7 @@ export async function migrateSettings({ migrateRegistry }) {
       await migrateDefaultSurnames();
       await migrateRegistry();
     }
+    if (schema < 4) await recoverArchives();
     requireActiveGM();
     await game.settings.set(MODULE_ID, "settingsSchemaVersion", SETTINGS_SCHEMA_VERSION);
   } catch (err) {
@@ -374,11 +382,16 @@ async function migrateLegacyConfig() {
   const branches = artSets.humanByCultureGender?.folders;
   if (branches && typeof branches === "object" && !Array.isArray(branches)) {
     const defaults = buildDefaultGenderCultureFolders();
-    mergedArt.humanByCultureGender = { ...artSets.humanByCultureGender, folders: {
-      ...branches,
-      male: { ...defaults.male, ...branches.male },
-      female: { ...defaults.female, ...branches.female }
-    } };
+    const folders = { ...branches };
+    for (const [gender, cultures] of Object.entries(defaults)) {
+      const branch = branches[gender];
+      if (branch == null) folders[gender] = cultures;
+      else if (typeof branch === "object" && !Array.isArray(branch)
+        && !Object.hasOwn(branch, "default") && !ART_SOURCE_FIELDS.some(field => Object.hasOwn(branch, field))) {
+        folders[gender] = { ...cultures, ...branch };
+      }
+    }
+    mergedArt.humanByCultureGender = { ...artSets.humanByCultureGender, folders };
   }
   if (JSON.stringify(mergedArt) !== JSON.stringify(artSets)) await setArtSets(mergedArt);
 }

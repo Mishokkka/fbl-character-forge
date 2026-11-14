@@ -1,4 +1,6 @@
 import { MODULE_ID } from "../constants.js";
+import { ART_SOURCE_FIELDS } from "../data/art-sets.js";
+import { CULTURE_ART_FOLDER_LABELS } from "../data/cultures.js";
 import { getArtSets, getGlobalTokenNamePatterns, getNameSets, splitTokenNamePatterns } from "./settings.js";
 import { browseDirectories, browseImages, isMissingArtFolder } from "./asset-browser.js";
 import { getUsedPathSet, shouldUseAssetRegistry } from "./asset-registry.js";
@@ -174,15 +176,7 @@ export function normalizeArtBranch(candidate) {
 
 export function isArtBranchConfig(candidate) {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
-  return !!(
-    candidate.folder
-    || candidate.portraitFolder
-    || candidate.tokenFolder
-    || candidate.portraitFiles
-    || candidate.tokenFiles
-    || candidate.portraits
-    || candidate.tokens
-  );
+  return ART_SOURCE_FIELDS.some(field => Object.hasOwn(candidate, field) && Boolean(candidate[field]));
 }
 
 export function mergeArtBranch(baseSet, branch) {
@@ -553,38 +547,89 @@ export function samePath(a, b) {
   return normalizeFoundryPath(a) === normalizeFoundryPath(b);
 }
 
-export function validateArtSet(set, key = "") {
+const ART_BRANCH_MAPS = ["folders", "cultures", "byCulture", "byGender", "byGenderCulture"];
+const ART_GENDER_BRANCHES = ["male", "female", "neutral", "random"];
+const ART_SETTINGS = new Set([
+  ...ART_SOURCE_FIELDS, "aliases", "label", "notes", "source", "bucket", "recursive", "pairByName",
+  "sameFolderTokenSuffix", "tokenSuffixes", "tokenNamePatterns", "markUsed"
+]);
+
+function isArtObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isImageList(value) {
+  return Array.isArray(value) && value.every(path => typeof path === "string" && isImagePath(path.trim()));
+}
+
+function hasArtSource(value) {
+  return typeof value === "string" ? Boolean(value.trim()) : isImageList(value) && value.length > 0;
+}
+
+export function validateArtSet(set, key = "", { allowEmpty = false } = {}) {
   const errors = [];
   const warnings = [];
-  if (!set || typeof set !== "object" || Array.isArray(set)) {
+  if (!isArtObject(set)) {
     errors.push(game.i18n.localize("FBL_CF.Manager.InvalidObject"));
     return { key, valid: false, errors, warnings };
   }
 
-  const directFields = ["folder", "portraitFolder", "tokenFolder", "portraitFiles", "tokenFiles", "portraits", "tokens"];
-  const branchFields = ["folders", "cultures", "byCulture", "byGender", "byGenderCulture", "male", "female", "neutral", "default"];
-  const validSource = value => typeof value === "string" ? Boolean(value.trim())
-    : Array.isArray(value) && value.length > 0 && value.every(path => typeof path === "string" && isImagePath(path.trim()));
-  const hasBranch = value => validSource(value) || (value && typeof value === "object" && !Array.isArray(value)
-    && (isArtBranchConfig(value) ? validateSources(value, directFields).length === 0 : Object.values(value).some(hasBranch)));
-  errors.push(...validateSources(set, directFields));
-  const hasDirectSource = directFields.some(field => validSource(set[field]));
-  const hasBranches = branchFields.some(field => hasBranch(set[field]));
-  if (!hasDirectSource && !hasBranches) errors.push(game.i18n.localize("FBL_CF.Manager.MissingArtSource"));
-  if (set.pairByName && !getArtSources(set).shared && !getArtSources(set).token && !hasBranches) {
+  const invalidSource = field => errors.push(game.i18n.format("FBL_CF.Manager.InvalidArtSource", { field }));
+  const validateSources = (definition, prefix = "") => {
+    for (const field of ART_SOURCE_FIELDS) {
+      const value = definition[field];
+      if (value == null || typeof value === "string") continue;
+      if (field === "folder" || field.endsWith("Folder") || !isImageList(value)) invalidSource(prefix + field);
+    }
+  };
+  let hasBranches = false;
+  const visitBranch = (value, path, allowsChildren = false) => {
+    if (value == null) return;
+    if (!isArtObject(value)) {
+      if (typeof value !== "string" && !isImageList(value)) invalidSource(path);
+      hasBranches ||= hasArtSource(value);
+      return;
+    }
+    validateSources(value, path + ".");
+    hasBranches ||= Object.values(getArtSources(value)).some(hasArtSource);
+    for (const [key, child] of Object.entries(value)) {
+      if (ART_SETTINGS.has(key)) continue;
+      if (allowsChildren) visitBranch(child, `${path}.${key}`);
+      else invalidSource(`${path}.${key}`);
+    }
+  };
+
+  validateSources(set);
+  const sources = getArtSources(set);
+  for (const map of ART_BRANCH_MAPS) {
+    if (set[map] == null) continue;
+    if (!isArtObject(set[map])) invalidSource(map);
+    else for (const [key, value] of Object.entries(set[map])) visitBranch(value, `${map}.${key}`, true);
+  }
+  for (const gender of ART_GENDER_BRANCHES) visitBranch(set[gender], gender, true);
+  visitBranch(set.default, "default");
+
+  // Older sets may use a culture key or one of its aliases directly at the root.
+  const legacyFields = Object.keys(set).filter(field => !ART_SETTINGS.has(field) && field !== "default"
+    && !ART_GENDER_BRANCHES.includes(field) && !ART_BRANCH_MAPS.includes(field));
+  if (legacyFields.length) {
+    const nameSets = getNameSets();
+    for (const field of legacyFields) {
+      const culture = normalizeNameSetKey(field, nameSets);
+      if (Object.hasOwn(nameSets, culture) || Object.hasOwn(CULTURE_ART_FOLDER_LABELS, culture)) {
+        visitBranch(set[field], field, true);
+      }
+    }
+  }
+
+  if (!allowEmpty && !hasBranches && !Object.values(sources).some(hasArtSource)) {
+    errors.push(game.i18n.localize("FBL_CF.Manager.MissingArtSource"));
+  }
+  if (set.pairByName && !sources.shared && !sources.token && !hasBranches) {
     warnings.push(game.i18n.localize("FBL_CF.Manager.MissingTokenSource"));
   }
   if (set.source && !["data", "public", "s3"].includes(set.source)) warnings.push(game.i18n.format("FBL_CF.Manager.UnknownFileSource", { source: set.source }));
   return { key, valid: !errors.length, errors, warnings };
-}
-
-function validateSources(set, fields) {
-  return fields.filter(field => {
-    const value = set[field];
-    if (value == null || value === "") return false;
-    if (field === "folder" || field.endsWith("Folder")) return typeof value !== "string";
-    return !(typeof value === "string" || Array.isArray(value) && value.every(path => typeof path === "string" && isImagePath(path.trim())));
-  }).map(field => game.i18n.format("FBL_CF.Manager.InvalidArtSource", { field }));
 }
 
 export function validateArtSets(artSets = getArtSets()) {

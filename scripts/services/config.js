@@ -1,5 +1,5 @@
 import { getArtSets, getNameSets, setArtSets, setNameSets } from "./settings.js";
-import { getSetAliases, resolveSetKey } from "../utils.js";
+import { getSetAliases } from "../utils.js";
 import { validateArtSet } from "./art.js";
 import { validateNameSet } from "./names.js";
 
@@ -22,32 +22,27 @@ function validateConfigKeys(data) {
   }
 }
 
-export async function updateConfig({ mode, changes, expected, createDraft = false }) {
+export async function updateConfig({ mode, changes = {}, remove = [], expected, createDraft = false }) {
   const names = mode === "names";
   if (!names && mode !== "art") throw new Error("Unknown Character Forge configuration");
   const data = names ? getNameSets() : getArtSets();
-  const validate = names ? validateNameSet : validateArtSet;
-  for (const [key, value] of Object.entries(changes)) {
-    if (JSON.stringify(data[key] ?? null) !== JSON.stringify(expected[key])) {
+  for (const key of [...Object.keys(changes), ...remove]) {
+    if (!isConfigKey(key)) throw new Error(game.i18n.localize("FBL_CF.Manager.InvalidKey"));
+    if (!Object.hasOwn(expected ?? {}, key) || JSON.stringify(data[key] ?? null) !== JSON.stringify(expected[key])) {
       throw new Error(game.i18n.localize("FBL_CF.Manager.ConcurrentEdit"));
     }
-    if (value === null) delete data[key];
-    else {
-      if (!isConfigKey(key)) throw new Error(game.i18n.localize("FBL_CF.Manager.InvalidKey"));
-      if (!createDraft || expected[key] !== null) {
-        const validation = validate(value, key);
-        if (!validation.valid) throw new Error(validation.errors.join(" "));
-      }
-      // Existing aliases keep stored settings and references to the same set resolvable.
-      const aliases = [...new Set([...getSetAliases(data[key]), ...getSetAliases(value)])];
-      for (const alias of aliases) {
-        const owner = resolveSetKey(data, alias);
-        if (owner && owner !== key && changes[owner] !== null) {
-          throw new Error(game.i18n.format("FBL_CF.Manager.InvalidSetKey", { key: alias }));
-        }
-      }
-      data[key] = aliases.length ? { ...value, aliases } : value;
+  }
+  for (const key of remove) delete data[key];
+  for (const [key, value] of Object.entries(changes)) {
+    const validation = names ? validateNameSet(value, key)
+      : validateArtSet(value, key, { allowEmpty: createDraft && expected[key] === null });
+    if (!validation.valid) throw new Error(validation.errors.join(" "));
+    if (value.aliases != null && !Array.isArray(value.aliases)) {
+      throw new Error(game.i18n.format("FBL_CF.Manager.InvalidSetKey", { key }));
     }
+    // Existing aliases keep stored settings and references to the same set resolvable.
+    const aliases = [...new Set([...getSetAliases(data[key]), ...getSetAliases(value)])];
+    data[key] = aliases.length ? { ...value, aliases } : value;
   }
   validateConfigKeys(data);
   if (names) await setNameSets(data);

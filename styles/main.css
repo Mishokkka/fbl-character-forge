@@ -334,6 +334,14 @@
   border-top: 1px solid var(--fbl-cf-border);
 }
 
+.fbl-cf-disclosure--token {
+  grid-column: 1 / -1;
+}
+
+.fbl-cf-field-grid.fbl-cf-token-dimensions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .fbl-cf-batch-row {
   display: grid;
   grid-template-columns: 82px auto;

@@ -23,6 +23,8 @@ export class TokenNamePatternSettingsApp extends HandlebarsApplicationMixin(Appl
     main: { template: `modules/${MODULE_ID}/templates/apps/token-name-patterns.hbs` }
   };
 
+  busy = false;
+
   constructor(options = {}) {
     super(options);
     this.value = game.settings.get(MODULE_ID, "tokenNamePatterns");
@@ -52,7 +54,9 @@ export class TokenNamePatternSettingsApp extends HandlebarsApplicationMixin(Appl
   async _onRender(context, options) {
     await super._onRender(context, options);
     const root = this.element;
-    root?.querySelector?.("textarea[name='patterns']")?.addEventListener("input", event => { this.value = event.currentTarget.value; });
+    root?.querySelector?.("textarea[name='patterns']")?.addEventListener("input", event => {
+      if (!this.busy) this.value = event.currentTarget.value;
+    });
     if (root) root.onsubmit = event => event.preventDefault();
   }
 
@@ -68,12 +72,21 @@ export class TokenNamePatternSettingsApp extends HandlebarsApplicationMixin(Appl
 
   async #action(event, action) {
     event.preventDefault();
+    if (this.busy) return;
     switch (action) {
       case "save": {
-        const normalized = await runWorldOperation("savePatterns", { value: this.value, expected: this.savedValue });
-        this.value = this.savedValue = normalized;
-        this.status = game.i18n.localize("FBL_CF.Manager.Saved");
-        await this.render({ force: true });
+        this.busy = true;
+        const content = this.element?.querySelector(".window-content");
+        if (content) content.inert = true;
+        try {
+          const normalized = await runWorldOperation("savePatterns", { value: this.value, expected: this.savedValue });
+          this.value = this.savedValue = normalized;
+          this.status = game.i18n.localize("FBL_CF.Manager.Saved");
+          if (this.rendered) await this.render();
+        } finally {
+          if (content) content.inert = false;
+          this.busy = false;
+        }
         break;
       }
       case "restore": {

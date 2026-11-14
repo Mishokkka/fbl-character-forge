@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve used artwork on world Actor deletion by default. Actor compendium copies hold independent reservations by UUID, and an upgrade restores reservations for existing world archives.
+- Honor saved token disposition and name visibility for newly generated characters, including legacy Foundry token defaults and v13 Character overrides.
 - Serialized shared art selection and registry writes through the active GM. Track each actor using a shared image and migrate existing reservations.
 - Corrected portrait and token pairing across recursive folders, token-only exhaustion, stale previews and folder-cache retries.
 - Preserved existing culture and art references on rename. Validate imported sets and token filename patterns before saving.

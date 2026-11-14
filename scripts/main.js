@@ -5,7 +5,8 @@ import { ArtSetManagerApp, NameSetManagerApp } from "./apps/config-manager-app.j
 import { TokenNamePatternSettingsApp } from "./apps/token-name-patterns-app.js";
 import { migrateSettings, registerSettings, saveTokenNamePatterns } from "./services/settings.js";
 import {
-  cleanAssetRegistry, isWorldActor, migrateAssetRegistry, releaseAssetsForActor, resetAssetRegistry, syncActorAssetUsage
+  actorAssetFieldsChanged, cleanAssetRegistry, isRegistryActor, migrateAssetRegistry, recoverArchivedActorAssets, releaseAssetsForActor,
+  resetAssetRegistry, syncActorAssetUsage
 } from "./services/asset-registry.js";
 import { createActorForWorld } from "./services/actors.js";
 import { registerWorldOperations, runOnActiveGM } from "./services/world-operations.js";
@@ -32,7 +33,7 @@ Hooks.once("ready", async () => {
     cleanRegistry: cleanAssetRegistry,
     savePatterns: saveTokenNamePatterns,
     updateConfig
-  }, () => migrateSettings({ migrateRegistry: migrateAssetRegistry }));
+  }, () => migrateSettings({ migrateRegistry: migrateAssetRegistry, recoverArchives: recoverArchivedActorAssets }));
   if (game.user?.isGM && game.settings.get(MODULE_ID, "replaceActorCreateDialog")) patchActorCreateDialog();
   registerPublicApi();
   console.log(`${MODULE_ID} | Ready.`);
@@ -54,21 +55,23 @@ Hooks.on("createToken", (tokenDocument, options, userId) => {
   randomizeSceneTokenNamePost(tokenDocument, options, userId);
 });
 
-Hooks.on("deleteActor", actor => {
-  if (!game.user?.isActiveGM || !isWorldActor(actor) || !game.settings.get(MODULE_ID, "releaseAssetsOnActorDelete")) return;
-  runOnActiveGM(() => {
-    if (!game.actors.has(actor.id)) return releaseAssetsForActor(actor);
-  }).catch(err => {
-    console.warn(`${MODULE_ID} | Could not release assets for deleted actor`, err);
-  });
-});
-
-Hooks.on("updateActor", (actor, changes) => {
-  if (!game.user?.isActiveGM || !isWorldActor(actor)) return;
-  const flattened = foundry.utils.flattenObject(changes || {});
-  const artChanged = Object.keys(flattened).some(key => ["img", "prototypeToken.texture.src", "prototypeToken.randomImg"].includes(key));
-  if (!artChanged) return;
-  runOnActiveGM(() => syncActorAssetUsage(game.actors.get(actor.id))).catch(err => {
+function queueActorAssetChange(actor, change) {
+  if (!game.user?.isActiveGM || !isRegistryActor(actor)) return;
+  runOnActiveGM(() => change(actor)).catch(err => {
     console.warn(`${MODULE_ID} | Could not synchronize actor asset usage`, err);
   });
+}
+
+Hooks.on("createActor", actor => {
+  if (actor.flags?.[MODULE_ID]?.assetUsage === "active") queueActorAssetChange(actor, syncActorAssetUsage);
+});
+
+Hooks.on("deleteActor", actor => queueActorAssetChange(actor, document => {
+  const exists = document.pack ? game.packs.get(document.pack)?.index.has(document.id) : game.actors.has(document.id);
+  if (!exists) return releaseAssetsForActor(document);
+}));
+
+Hooks.on("updateActor", (actor, changes) => {
+  if (!game.user?.isActiveGM || !isRegistryActor(actor)) return;
+  if (actorAssetFieldsChanged(changes)) queueActorAssetChange(actor, syncActorAssetUsage);
 });
