@@ -1,0 +1,46 @@
+<div class="fbl-cf-manager">
+  <header class="fbl-cf-panel-header">
+    <div><h2>{{localize titleKey}}</h2><p>{{localize hintKey}}</p></div>
+    <div class="fbl-cf-toolbar">
+      <button type="button" data-action="add" data-tooltip="{{localize 'FBL_CF.Manager.Add'}}" aria-label="{{localize 'FBL_CF.Manager.Add'}}"><i class="fas fa-plus"></i></button>
+      <button type="button" data-action="import" data-tooltip="{{localize 'FBL_CF.Manager.Import'}}" aria-label="{{localize 'FBL_CF.Manager.Import'}}"><i class="fas fa-file-import"></i></button>
+      <button type="button" data-action="export" data-tooltip="{{localize 'FBL_CF.Manager.Export'}}" aria-label="{{localize 'FBL_CF.Manager.Export'}}"><i class="fas fa-file-export"></i></button>
+      <input type="file" data-import-file accept="application/json,.json" hidden>
+    </div>
+  </header>
+  {{#if status}}<div class="fbl-cf-status">{{status}}</div>{{/if}}
+
+  <div class="fbl-cf-manager__layout">
+    <nav class="fbl-cf-manager__list">
+      {{#each entries}}
+      <button type="button" data-action="select" data-key="{{key}}" class="{{#if selected}}active{{/if}}">
+        <span>{{label}}</span><small>{{key}}</small>
+      </button>
+      {{/each}}
+    </nav>
+
+    <main class="fbl-cf-manager__editor">
+      {{#if selectedKey}}
+      <div class="fbl-cf-manager__key fbl-cf-inline-actions">
+        <input type="text" name="entryKey" value="{{selectedKey}}" aria-label="{{localize 'FBL_CF.Manager.Key'}}">
+        <button type="button" data-action="rename" data-tooltip="{{localize 'FBL_CF.Manager.Rename'}}" aria-label="{{localize 'FBL_CF.Manager.Rename'}}"><i class="fas fa-pen"></i></button>
+      </div>
+      <textarea name="draft" spellcheck="false" aria-label="{{localize 'FBL_CF.Manager.Definition'}}">{{draft}}</textarea>
+      <div class="fbl-cf-validation {{#if validation.valid}}is-valid{{else}}is-invalid{{/if}}">
+        {{#if validation.errors.length}}<p><strong>{{localize "FBL_CF.Manager.Errors"}}:</strong> {{#each validation.errors}}{{this}}{{#unless @last}}; {{/unless}}{{/each}}</p>{{/if}}
+        {{#if validation.warnings.length}}<p><strong>{{localize "FBL_CF.Manager.Warnings"}}:</strong> {{#each validation.warnings}}{{this}}{{#unless @last}}; {{/unless}}{{/each}}</p>{{/if}}
+        {{#if validation.valid}}<p><i class="fas fa-check"></i> {{localize "FBL_CF.Manager.Valid"}}</p>{{/if}}
+      </div>
+      {{#if isNames}}
+      <div class="fbl-cf-suggestions">{{#each preview}}<span class="fbl-cf-chip">{{this}}</span>{{/each}}</div>
+      {{/if}}
+      <footer class="fbl-cf-toolbar">
+        <button type="button" data-action="save"><i class="fas fa-floppy-disk"></i> {{localize "FBL_CF.Common.Save"}}</button>
+        <button type="button" data-action="format"><i class="fas fa-align-left"></i> {{localize "FBL_CF.Manager.Format"}}</button>
+        <button type="button" data-action="reset"><i class="fas fa-rotate-left"></i> {{localize "FBL_CF.Manager.Reset"}}</button>
+        <button type="button" data-action="delete" class="danger"><i class="fas fa-trash"></i> {{localize "FBL_CF.Manager.Delete"}}</button>
+      </footer>
+      {{else}}<p>{{localize "FBL_CF.Manager.Empty"}}</p>{{/if}}
+    </main>
+  </div>
+</div>
