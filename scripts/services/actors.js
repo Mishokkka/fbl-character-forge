@@ -1,10 +1,11 @@
 import { ACTOR_TYPE, MODULE_ID } from "../constants.js";
 import { getArtSets, getNameSets } from "./settings.js";
 import { generateNameDetailed, normalizeNameSetKey } from "./names.js";
-import { normalizeGenderKey, rollArt, resolveArtSetForContext } from "./art.js";
+import { normalizeArtSubsetKey, normalizeGenderKey, rollArt, resolveArtSetForContext } from "./art.js";
 import { getUsedPathSet, markAssetsUsed, shouldUseAssetRegistry } from "./asset-registry.js";
 import { deepMerge, normalizeFoundryPath, randomOf, resolveSetKey, safeDefaultKey } from "../utils.js";
 import { applyProfileToActorData, generateNpcProfile } from "./profiles.js";
+import { applySavedTokenDefaults } from "./token-defaults.js";
 import { requireActiveGM, runOnActiveGM, runWorldOperation } from "./world-operations.js";
 
 export async function createActorFromApi(options = {}) {
@@ -72,14 +73,15 @@ async function createActorDocument(options = {}, ActorClass = globalThis.Actor?.
   const artSets = getArtSets();
   const templateData = await resolveActorTemplateData(options.templateUuid, requestingUser);
   const overrides = foundry.utils.expandObject(options.actorData || options.data || {});
-  const createData = deepMerge(templateData, overrides);
-  const type = options.type || options.actorType || createData.type || ACTOR_TYPE;
+  const templateType = templateData.type;
+  const type = options.type || options.actorType || (overrides.type ?? templateType) || ACTOR_TYPE;
   if (!ActorClass?.create || (ActorClass.TYPES?.length && !ActorClass.TYPES.includes(type))) {
     throw new Error(game.i18n.format("FBL_CF.Status.InvalidActorType", { type }));
   }
-  if (options.templateUuid && templateData.type !== type) {
-    throw new Error(game.i18n.format("FBL_CF.Status.TemplateTypeMismatch", { type, templateType: templateData.type }));
+  if (options.templateUuid && templateType !== type) {
+    throw new Error(game.i18n.format("FBL_CF.Status.TemplateTypeMismatch", { type, templateType }));
   }
+  const createData = deepMerge(templateData, overrides);
   const isForgeActor = type === ACTOR_TYPE;
 
   const requestedNameSet = normalizeNameSetKey(
@@ -127,14 +129,17 @@ async function createActorDocument(options = {}, ActorClass = globalThis.Actor?.
       }
       const resolved = set ? resolveArtSetForContext(set, context) : null;
       trackAssetBranch = resolved?.branchMarkUsed ?? true;
-      // A preview can become occupied while the window is open. Validate it in the same queue as creation.
-      const used = options.previewArt && trackAssetBranch && options.markUsed !== false && shouldUseAssetRegistry(set)
+      const previewSubset = options.previewArt?.artSubsetKey;
+      const subsetChanged = previewSubset && normalizeArtSubsetKey(previewSubset) !== resolved?.artSubsetKey;
+      // The selection or availability can change while a preview is open. Check both before assigning art.
+      const trackPreview = options.previewArt && trackAssetBranch && options.markUsed !== false;
+      const used = trackPreview && !subsetChanged && shouldUseAssetRegistry(set)
         ? getUsedPathSet(artSetKey) : null;
       const previewIsUsed = used?.has(art.portrait) || used?.has(art.token);
-      if ((!art.portrait && !art.token) || previewIsUsed) {
+      if ((!art.portrait && !art.token) || subsetChanged || previewIsUsed) {
         art = { portrait: "", token: "" };
         art = await rollArt(artSetKey, context, { resolved });
-      } else if (options.previewArt?.artSubsetKey) art.artSubsetKey = options.previewArt.artSubsetKey;
+      } else if (previewSubset) art.artSubsetKey = resolved.artSubsetKey;
     } catch (err) {
       artError = err;
       warnings.push(err?.message || String(err));
@@ -215,6 +220,7 @@ async function createActorDocument(options = {}, ActorClass = globalThis.Actor?.
   } else if (assignArt && !createData.img && options.fallbackImage) {
     createData.img = options.fallbackImage;
   }
+  applySavedTokenDefaults(createData);
 
   delete createData._id;
   if (createData.prototypeToken?.randomImg && !requestingUser.can("FILES_BROWSE")) {

@@ -17,9 +17,11 @@ import {
 import { clearAssetBrowseCache } from "../services/asset-browser.js";
 import { resetUsedAssetsForSet } from "../services/asset-registry.js";
 import { PROFILE_ROLE_KEYS, PROFILE_TIER_KEYS } from "../services/profiles.js";
+import { FORGE_TOKEN_FIELDS, getTokenChoices, getWorldTokenOverrides, normalizeForgePrototypeToken } from "../services/token-defaults.js";
 import { randomOf, safeDefaultKey } from "../utils.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+const TOKEN_LABEL_KEYS = { displayName: "TOKEN.DISPLAY_", disposition: "TOKEN.DISPOSITION." };
 
 function localize(key, fallback = key) {
   const value = game.i18n?.localize?.(key);
@@ -28,6 +30,16 @@ function localize(key, fallback = key) {
 
 function optionList(entries, selected) {
   return entries.map(([value, label]) => ({ value, label, selected: value === selected }));
+}
+
+function tokenSelect(field, choices, selected, override) {
+  const labels = TOKEN_LABEL_KEYS[field];
+  const defaultLabel = game.i18n.localize("FBL_CF.Forge.TokenDefault");
+  const entries = Object.entries(choices).map(([name, value]) => [String(value), game.i18n.localize(labels + name)]);
+  return {
+    locked: override !== undefined,
+    options: optionList([["", defaultLabel], ...entries], String(override ?? selected ?? ""))
+  };
 }
 
 function actorFolderOptions(selectedId = "", allowed = null) {
@@ -83,7 +95,7 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
   constructor(options = {}) {
     super(options);
     this.documentClass = options.documentClass || globalThis.Actor;
-    this.baseData = foundry.utils.deepClone(options.baseData || {});
+    this.baseData = foundry.utils.expandObject(foundry.utils.deepClone(options.baseData || {}));
     this.createOptions = foundry.utils.deepClone(options.createOptions || {});
     this.dialogOptions = foundry.utils.deepClone(options.dialogOptions || {});
     this.allowedTypes = Array.isArray(options.types) && options.types.length
@@ -156,6 +168,10 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       portrait: "",
       token: "",
       previewArt: null,
+      prototypeToken: {
+        ...normalizeForgePrototypeToken(game.settings.get(MODULE_ID, "lastPrototypeToken")),
+        ...normalizeForgePrototypeToken(this.baseData.prototypeToken)
+      },
       batchCount: Number(game.settings.get(MODULE_ID, "batchDefaultCount")) || 5
     };
 
@@ -181,6 +197,9 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
     const nameSets = getNameSets();
     const artSets = getArtSets();
     const isCharacter = this.forgeState.type === ACTOR_TYPE;
+    const prototypeToken = this.forgeState.prototypeToken;
+    const overrides = getWorldTokenOverrides(this.forgeState.type);
+    const tokenChoices = getTokenChoices();
     const history = getGenerationHistory().slice(0, 8).map(entry => ({
       ...entry,
       timestampLabel: entry.timestamp ? new Date(entry.timestamp).toLocaleString() : ""
@@ -195,6 +214,9 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       status: this.status,
       state: this.forgeState,
       isCharacter,
+      tokenDisplay: tokenSelect("displayName", tokenChoices.displayName, prototypeToken.displayName, overrides.displayName),
+      tokenDisposition: tokenSelect("disposition", tokenChoices.disposition, prototypeToken.disposition, overrides.disposition),
+      hasTokenOverrides: Object.keys(overrides).length > 0,
       portraitPreview: this.forgeState.portrait || FALLBACK_IMAGE,
       tokenPreview: this.forgeState.token || this.forgeState.portrait || FALLBACK_IMAGE,
       typeOptions: optionList(this.allowedTypes.map(type => [type, CONFIG.Actor?.typeLabels?.[type] ? game.i18n.localize(CONFIG.Actor.typeLabels[type]) : type]), this.forgeState.type),
@@ -260,6 +282,13 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       this.forgeState.name = event.currentTarget.value;
       this.forgeState.generatedName = false;
     });
+    for (const field of FORGE_TOKEN_FIELDS) {
+      const name = `prototypeToken.${field}`;
+      bind(name, field in TOKEN_LABEL_KEYS ? "change" : "input", event => {
+        const input = event.currentTarget;
+        this.forgeState.prototypeToken[field] = input.validity.badInput ? NaN : input.value;
+      });
+    }
     bind("type", "change", async event => {
       this.forgeState.type = event.currentTarget.value;
       this.inspection = null;
@@ -286,9 +315,7 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       await this.#runBusy(() => this.#refreshSubsets());
     });
     bind("artSubsetKey", "change", async event => {
-      this.forgeState.artSubsetKey = normalizeArtSubsetKey(event.currentTarget.value);
-      this.#clearArt();
-      this.inspection = null;
+      this.#selectArtSubset(normalizeArtSubsetKey(event.currentTarget.value));
       await this.render({ force: true });
     });
     bind("assignArt", "change", async event => {
@@ -349,7 +376,7 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
           clearAssetBrowseCache();
           await this.#runBusy(async () => {
             await this.#refreshSubsets({ refresh: true });
-            await this.#inspectArt();
+            await this.#inspectArt({ silent: this.status.type === "warning" });
           });
           break;
         case "reset-used": {
@@ -448,6 +475,13 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
     this.forgeState.previewArt = null;
   }
 
+  #selectArtSubset(key) {
+    if (key === this.forgeState.artSubsetKey) return;
+    this.forgeState.artSubsetKey = key;
+    this.#clearArt();
+    this.inspection = null;
+  }
+
   #artContext() {
     return {
       nameSetKey: this.forgeState.nameSetKey,
@@ -468,43 +502,44 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   async #refreshSubsets(options = {}) {
     if (!this.forgeState.artSetKey) return;
+    let subsets;
     try {
-      const subsets = await getArtSubsetOptions(this.forgeState.artSetKey, this.#artContext(), options);
-      this.forgeState.subsetOptions = subsets;
-      if (!subsets.some(option => option.key === this.forgeState.artSubsetKey)) {
-        this.forgeState.artSubsetKey = "general";
-        this.#clearArt();
-      }
+      subsets = await getArtSubsetOptions(this.forgeState.artSetKey, this.#artContext(), options);
     } catch (err) {
       console.warn(`${MODULE_ID} | Could not read art subsets`, err);
-      this.forgeState.subsetOptions = this.#generalSubset();
-      this.forgeState.artSubsetKey = "general";
+      subsets = this.#generalSubset();
       this.#setStatus("warning", err?.message || String(err));
     }
+    this.forgeState.subsetOptions = subsets;
+    if (!subsets.some(option => option.key === this.forgeState.artSubsetKey)) this.#selectArtSubset("general");
   }
 
   async #rollArt({ silent = false } = {}) {
     if (!this.forgeState.artSetKey) return;
     const art = await rollArt(this.forgeState.artSetKey, this.#artContext());
+    this.#selectArtSubset(art.artSubsetKey);
     this.forgeState.portrait = art.portrait || "";
     this.forgeState.token = art.token || art.portrait || "";
     this.forgeState.previewArt = { artSubsetKey: art.artSubsetKey };
-    if (art.artSubsetKey !== this.forgeState.artSubsetKey) this.forgeState.artSubsetKey = art.artSubsetKey;
     this.inspection = null;
     if (!silent) this.#setStatus("success", localize("FBL_CF.Status.ArtRolled", "Арт выбран."));
   }
 
-  async #inspectArt() {
+  async #inspectArt({ silent = false } = {}) {
     this.inspection = await inspectArtSet(this.forgeState.artSetKey, this.#artContext());
-    this.#setStatus("success", localize("FBL_CF.Status.ArtInspected", "Проверка набора завершена."));
+    if (!silent) this.#setStatus("success", localize("FBL_CF.Status.ArtInspected", "Проверка набора завершена."));
   }
 
-  #buildCreateOptions({ openSheet = false, name = null } = {}) {
+  #buildCreateOptions(prototypeToken, openSheet = false) {
+    const actorData = foundry.utils.deepClone(this.baseData);
+    const token = { ...actorData.prototypeToken };
+    for (const field of FORGE_TOKEN_FIELDS) delete token[field];
+    actorData.prototypeToken = { ...token, ...prototypeToken, ...getWorldTokenOverrides(this.forgeState.type) };
     return {
       createOptions: foundry.utils.deepClone(this.createOptions),
       documentClass: this.documentClass,
-      actorData: foundry.utils.deepClone(this.baseData),
-      name: name ?? this.forgeState.name,
+      actorData,
+      name: this.forgeState.name,
       type: this.forgeState.type,
       folder: this.forgeState.folderId || "",
       nameSetKey: this.forgeState.nameSetKey,
@@ -526,8 +561,10 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
   }
 
   async #createOne({ openSheet = false, continueAfter = false } = {}) {
+    const prototypeToken = normalizeForgePrototypeToken(this.forgeState.prototypeToken, { strict: true });
     if (!String(this.forgeState.name || "").trim()) await this.#applyGeneratedName(generateNameDetailed(this.forgeState.nameSetKey, this.forgeState.gender));
-    const result = await createActorFromApi(this.#buildCreateOptions({ openSheet }));
+    const result = await createActorFromApi(this.#buildCreateOptions(prototypeToken, openSheet));
+    await this.#rememberPrototypeToken(prototypeToken);
     await this.#recordHistory(result);
 
     this.#resolveDialog(result.actor);
@@ -554,7 +591,8 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   async #createBatch() {
     const count = Math.max(2, Math.min(100, Number(this.forgeState.batchCount) || 2));
-    const options = this.#buildCreateOptions({ openSheet: false });
+    const prototypeToken = normalizeForgePrototypeToken(this.forgeState.prototypeToken, { strict: true });
+    const options = this.#buildCreateOptions(prototypeToken);
     delete options.name;
     options.art = {};
     const result = await createActorsBatch({
@@ -566,7 +604,10 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
       }
     });
 
-    if (result.results[0]) this.#resolveDialog(result.results[0].actor);
+    if (result.results[0]) {
+      await this.#rememberPrototypeToken(prototypeToken);
+      this.#resolveDialog(result.results[0].actor);
+    }
     for (const item of result.results) await this.#recordHistory(item);
 
     const warnings = new Set(result.results.flatMap(item => item.warnings));
@@ -577,6 +618,15 @@ export class CharacterForgeApp extends HandlebarsApplicationMixin(ApplicationV2)
     if (result.errors.length) ui.notifications?.error?.(result.errors[0].message);
     this.#setStatus(result.errors.length || warnings.size ? "warning" : "success", message);
     ui.notifications?.info?.(message);
+  }
+
+  async #rememberPrototypeToken(prototypeToken) {
+    try {
+      await game.settings.set(MODULE_ID, "lastPrototypeToken", prototypeToken);
+    } catch (err) {
+      console.warn(`${MODULE_ID} | Could not save the last prototype token settings`, err);
+      ui.notifications?.warn?.(game.i18n.localize("FBL_CF.Forge.TokenPreferencesFailed"));
+    }
   }
 
   async #recordHistory(result) {

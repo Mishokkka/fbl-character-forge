@@ -105,7 +105,10 @@ async function browseAssets(kind, source, target, bucket, recursive, options) {
     const result = await browseDirect(source, path, bucket, options);
     for (const value of result[kind]) values.push(value);
     if (recursive) {
-      for (const dir of result.dirs) pending.push(dir);
+      for (const dir of result.dirs) {
+        // Foundry returns S3 prefixes as raw keys and decodes the next browse target.
+        pending.push(source === "s3" ? dir.split("/").map(part => encodeURIComponent(part)).join("/") : dir);
+      }
     }
   }
   return writeCache(key, unique(values), generation);

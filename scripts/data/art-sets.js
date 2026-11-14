@@ -1,5 +1,7 @@
 import { buildDefaultGenderCultureFolders } from "./cultures.js";
 
+export const ART_SOURCE_FIELDS = ["folder", "portraitFolder", "tokenFolder", "portraitFiles", "tokenFiles", "portraits", "tokens"];
+
 export const DEFAULT_ART_SETS = {
   "humanByCultureGender": {
     "label": "Люди: пол и культура",
