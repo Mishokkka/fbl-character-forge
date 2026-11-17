@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { MODULE_ID } from "../scripts/constants.js";
+import { MODULE_ID, SETTINGS_SCHEMA_VERSION } from "../scripts/constants.js";
 import { getArtSets, getNameSets, migrateSettings, registerSettings, setArtSets, setNameSets, setUsedAssets } from "../scripts/services/settings.js";
-import { DEFAULT_NAME_SETS } from "../scripts/data/name-sets.js";
+import { DEFAULT_NAME_SETS, applyRegionalNameExpansion } from "../scripts/data/name-sets.js";
+import { BASE_NAME_SETS } from "../scripts/data/name-sets.base.js";
+import { REGIONAL_NAME_EXPANSION } from "../scripts/data/regional-name-expansion.js";
 import { NAME_SET_ADDITIONS } from "../scripts/data/name-set-additions.js";
 import { findPairedToken, getArtBranch, getArtCandidates, getArtSubsetOptions, normalizeArtSubsetKey, rollArt, validateArtSet } from "../scripts/services/art.js";
 import { browseImages, clearAssetBrowseCache } from "../scripts/services/asset-browser.js";
@@ -182,7 +184,7 @@ test("a schema upgrade recovers an archive without a world copy or a prior regis
   await setArtSets({ people: { portraitFiles: [path], aliases: ["old"] } });
   settings.set("settingsSchemaVersion", 3);
   await migrateSettings({ migrateRegistry: migrateAssetRegistry, recoverArchives: recoverArchivedActorAssets });
-  assert.equal(settings.get("settingsSchemaVersion"), 4);
+  assert.equal(settings.get("settingsSchemaVersion"), SETTINGS_SCHEMA_VERSION);
   assert.deepEqual([...getUsedPathSet("people")], [path]);
   assert.equal(exportAssetRegistry().people.assets[path].owners[0].actorUuid, archived.uuid);
   await resetAssetRegistry({ artSetKey: "old" });
@@ -302,7 +304,7 @@ test("legacy name migration persists changes even when the pool length stays the
 
   await migrateSettings({ migrateRegistry: async () => {}, recoverArchives: async () => {} });
 
-  assert.deepEqual(getNameSets().novand.male, expected);
+  assert.deepEqual(getNameSets().novand.male, [...expected, ...REGIONAL_NAME_EXPANSION.novand.male]);
   assert.notEqual(settings.get("settingsSchemaVersion"), 1);
 });
 
@@ -320,7 +322,7 @@ test("legacy migration respects aliases in defaults, name additions and art fold
   const art = getArtSets();
   assert.equal(resolveSetKey(names, "novand"), "renamedCulture");
   assert.equal(resolveSetKey(art, "humanByCultureGender"), "renamedArt");
-  assert.deepEqual(names.renamedCulture.male, ["Custom Name", ...NAME_SET_ADDITIONS.novand.male]);
+  assert.deepEqual(names.renamedCulture.male, ["Custom Name", ...NAME_SET_ADDITIONS.novand.male, ...REGIONAL_NAME_EXPANSION.novand.male]);
   assert.deepEqual(names.renamedCulture.aliases, ["novand"]);
   assert.equal(art.renamedArt.folders.male, "custom/Male");
   assert.equal(art.renamedArt.folders.female.novand, "custom/Female");
@@ -510,4 +512,72 @@ test("explicit wildcard false wins over the Actor prototype", () => {
   const token = { actor: { prototypeToken: { randomImg: true } } };
   assert.equal(isWildcardToken(token), true);
   assert.equal(isWildcardToken(token, { randomImg: false }), false);
+});
+
+
+test("regional expansion covers every built-in culture and preserves naming patterns", () => {
+  assert.deepEqual(Object.keys(REGIONAL_NAME_EXPANSION).sort(), Object.keys(BASE_NAME_SETS).sort());
+  for (const [culture, fields] of Object.entries(REGIONAL_NAME_EXPANSION)) {
+    const base = BASE_NAME_SETS[culture];
+    const full = DEFAULT_NAME_SETS[culture];
+    assert.equal(full.pattern, base.pattern);
+    assert.equal(full.description, base.description);
+    assert.equal(validateNameSet(full, culture).valid, true);
+    const expectedFields = Object.keys(base).filter(field => Array.isArray(base[field]));
+    assert.deepEqual(Object.keys(fields).sort(), expectedFields.sort());
+    for (const [field, additions] of Object.entries(fields)) {
+      assert.ok(additions.length >= 60, culture + "." + field);
+      assert.equal(new Set(additions).size, additions.length);
+      for (const value of additions) {
+        assert.equal(value.trim(), value);
+        assert.match(value, /^[\p{Script=Cyrillic}\p{M}]+(?:[- '][\p{Script=Cyrillic}\p{M}]+)*$/u);
+        assert.ok(full[field].includes(value), culture + "." + field + ": " + value);
+      }
+      for (const value of base[field]) assert.ok(full[field].includes(value));
+      for (const value of NAME_SET_ADDITIONS[culture]?.[field] ?? []) assert.ok(full[field].includes(value));
+    }
+    if (fields.familyMale) assert.equal(fields.familyMale.length, fields.familyFemale.length);
+    for (const gender of ["male", "female"]) {
+      const result = generateNameFromDefinition(full, culture, gender);
+      assert.equal(result.gender, gender);
+      assert.notEqual(result.name, "Безымянный");
+      assert.ok(!result.name.includes("{"));
+    }
+  }
+  const defaults = structuredClone(DEFAULT_NAME_SETS);
+  assert.equal(applyRegionalNameExpansion(defaults), false);
+  assert.deepEqual(defaults, DEFAULT_NAME_SETS);
+});
+
+test("schema 5 appends regional names once, preserving user pools, aliases and full-name tables", async () => {
+  const weighted = { value: REGIONAL_NAME_EXPANSION.novand.male[0], weight: 7 };
+  const renamedCulture = { aliases: ["novand"], male: ["Custom Name", weighted], female: [], pattern: "{given}" };
+  const customCulture = { male: ["Custom"], family: ["Custom family"] };
+  const fullNames = { entries: ["Custom Full Name"], male: ["Ignored"] };
+  await setNameSets({ renamedCulture, customCulture, royuMideki: fullNames, lezhnizem: structuredClone(BASE_NAME_SETS.lezhnizem) });
+  settings.set("settingsSchemaVersion", 4);
+  const noop = async () => {};
+  await migrateSettings({ migrateRegistry: noop, recoverArchives: noop });
+  const migrated = getNameSets();
+  assert.deepEqual(migrated.renamedCulture.male, ["Custom Name", weighted, ...REGIONAL_NAME_EXPANSION.novand.male.slice(1)]);
+  assert.deepEqual(migrated.renamedCulture.female, []);
+  assert.equal(migrated.renamedCulture.family, undefined);
+  assert.equal(migrated.renamedCulture.pattern, "{given}");
+  assert.equal(migrated.novand, undefined);
+  assert.deepEqual(migrated.customCulture, customCulture);
+  assert.deepEqual(migrated.royuMideki, fullNames);
+  assert.ok(migrated.lezhnizem.familyMale.includes(REGIONAL_NAME_EXPANSION.lezhnizem.familyMale[0]));
+  assert.ok(migrated.lezhnizem.familyFemale.includes(REGIONAL_NAME_EXPANSION.lezhnizem.familyFemale[0]));
+  assert.equal(settings.get("settingsSchemaVersion"), SETTINGS_SCHEMA_VERSION);
+  assert.equal(applyRegionalNameExpansion(migrated), false);
+  await migrateSettings({ migrateRegistry: noop, recoverArchives: noop });
+  assert.deepEqual(getNameSets(), migrated);
+});
+
+test("regional expansion does not duplicate alternate Korean hyphenation", () => {
+  const first = REGIONAL_NAME_EXPANSION.seiku.male[0];
+  const sets = { seiku: { male: [first.replaceAll("-", "")] } };
+  assert.equal(applyRegionalNameExpansion(sets), true);
+  assert.equal(sets.seiku.male.length, REGIONAL_NAME_EXPANSION.seiku.male.length);
+  assert.equal(sets.seiku.male.includes(first), false);
 });
