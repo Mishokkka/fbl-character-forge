@@ -581,3 +581,32 @@ test("regional expansion does not duplicate alternate Korean hyphenation", () =>
   assert.equal(sets.seiku.male.length, REGIONAL_NAME_EXPANSION.seiku.male.length);
   assert.equal(sets.seiku.male.includes(first), false);
 });
+
+
+test("Yaknizem and Tiribor retain both historical naming traditions", () => {
+  const yak = DEFAULT_NAME_SETS.yaknizem;
+  const tir = DEFAULT_NAME_SETS.tiribor;
+  assert.match(yak.description, /монгольская/);
+  assert.match(tir.description, /греческая/);
+  for (const [set, field, values] of [
+    [yak, "male", ["Адам", "Батбаяр", "Тэмүүжин"]],
+    [yak, "female", ["Ганна", "Болормаа", "Нарантуяа"]],
+    [yak, "family", ["Коваль", "Хиад", "Олхонууд"]],
+    [tir, "male", ["Гримвальд", "Александр", "Перикл"]],
+    [tir, "female", ["Астрид", "Елена", "Каллиопа"]],
+    [tir, "family", ["Камнерез", "Пападопулос", "Ставридис"]]
+  ]) {
+    for (const value of values) assert.ok(set[field].includes(value), value);
+  }
+});
+
+test("regional expansion refreshes only unmodified legacy culture descriptions", () => {
+  const legacy = {
+    renamedYak: { aliases: ["yaknizem"], description: "Белорусская и польская основа.", male: ["Адам"] },
+    tiribor: { description: "My custom lore", male: ["Гримвальд"] }
+  };
+  assert.equal(applyRegionalNameExpansion(legacy), true);
+  assert.equal(legacy.renamedYak.description, BASE_NAME_SETS.yaknizem.description);
+  assert.equal(legacy.tiribor.description, "My custom lore");
+  assert.equal(applyRegionalNameExpansion(legacy), false);
+});

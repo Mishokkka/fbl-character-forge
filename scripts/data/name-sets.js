@@ -41,6 +41,12 @@ function expansionNameKey(value, culture) {
   return culture === "seiku" ? normalized.replace(/[- ]/g, "") : normalized;
 }
 
+// Update legacy descriptions only if they still exactly match the shipped defaults.
+const LEGACY_CULTURE_DESCRIPTIONS = {
+  yaknizem: "Белорусская и польская основа.",
+  tiribor: "Дварфийская основа для Воздушных Островов."
+};
+
 // Append only to existing, nonempty pools in recognized cultures. A deleted pool,
 // a full-name entries table or a custom culture must not be recreated by an upgrade.
 export function applyRegionalNameExpansion(nameSets) {
@@ -50,6 +56,10 @@ export function applyRegionalNameExpansion(nameSets) {
     const key = resolveSetKey(nameSets, culture);
     const set = key ? nameSets[key] : null;
     if (!set || typeof set !== "object" || (Array.isArray(set.entries) && set.entries.length)) continue;
+    if (Object.hasOwn(LEGACY_CULTURE_DESCRIPTIONS, culture) && set.description === LEGACY_CULTURE_DESCRIPTIONS[culture]) {
+      set.description = BASE_NAME_SETS[culture].description;
+      changed = true;
+    }
     for (const [field, additions] of Object.entries(fields)) {
       const pool = set[field];
       if (!Array.isArray(pool) || !pool.length) continue;
