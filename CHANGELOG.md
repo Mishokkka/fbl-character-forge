@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Expanded all 16 Air Islands regional name sets with 10,964 additional given-name and surname entries. Yaknizem includes Belarusian, Polish and Mongolian names; Tiribor includes dwarven and Greek names. Preserved culture-specific name order and gendered surname pools. Schema 5 appends new names to existing saved regional pools without replacing custom entries, weights or naming patterns.
+
 - Preserve used artwork on world Actor deletion by default. Actor compendium copies hold independent reservations by UUID, and an upgrade restores reservations for existing world archives.
 - Honor saved token disposition and name visibility for newly generated characters, including legacy Foundry token defaults and v13 Character overrides.
 - Serialized shared art selection and registry writes through the active GM. Track each actor using a shared image and migrate existing reservations.

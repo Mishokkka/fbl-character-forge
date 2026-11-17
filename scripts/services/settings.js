@@ -1,5 +1,5 @@
 import { MODULE_ID, SETTINGS_SCHEMA_VERSION } from "../constants.js";
-import { DEFAULT_NAME_SETS, applyNameSetAdditions } from "../data/name-sets.js";
+import { DEFAULT_NAME_SETS, applyNameSetAdditions, applyRegionalNameExpansion } from "../data/name-sets.js";
 import { ART_SOURCE_FIELDS, DEFAULT_ART_SETS } from "../data/art-sets.js";
 import { buildDefaultGenderCultureFolders } from "../data/cultures.js";
 import { BASE_NAME_SETS } from "../data/name-sets.base.js";
@@ -347,6 +347,10 @@ export async function migrateSettings({ migrateRegistry, recoverArchives }) {
       await migrateRegistry();
     }
     if (schema < 4) await recoverArchives();
+    if (schema < 5) {
+      const nameSets = getNameSets();
+      if (applyRegionalNameExpansion(nameSets)) await setNameSets(nameSets);
+    }
     requireActiveGM();
     await game.settings.set(MODULE_ID, "settingsSchemaVersion", SETTINGS_SCHEMA_VERSION);
   } catch (err) {
